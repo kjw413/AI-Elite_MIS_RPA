@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+.egg-info/
+.ruff_cache/
+
+# Virtual environment
+venv/
+.venv/
+.env
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# 런타임 로그 / Excel 임시파일
+logs/
+*.log
+**/~$*.xlsx
+**/~$*.xls
