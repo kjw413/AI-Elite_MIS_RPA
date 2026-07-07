@@ -1,30 +1,30 @@
-@REM MIS 재공품 RPA 실행 배치 파일
-@REM  '생산계획 대비 실적현황(완제품/재공품)' 화면 -> RawDB_재공품.xlsx
+@REM MIS work-in-process RPA launcher
+@REM Opens the production plan/results screen and samples WIP data.
 @echo off
 echo ============================================
-echo  MIS 재공품 RPA
-echo  기준일: D-2 자동 계산 (월 첫일 ~ D-2)
-echo  출력  : E:\Sampled DB\RawDB_재공품.xlsx
+echo  MIS Work-in-Process RPA
+echo  Date range: auto D-2 (month start to D-2)
+echo  Data file : configured RawDB WIP workbook
 echo ============================================
 echo.
 
 cd /d "%~dp0"
 
-REM 가상환경 활성화 (있을 경우)
+REM Activate virtual environment if available.
 if exist "..\venv\Scripts\activate.bat" (
     call "..\venv\Scripts\activate.bat"
 ) else if exist "..\.venv\Scripts\activate.bat" (
     call "..\.venv\Scripts\activate.bat"
 )
 
-echo [시작] MIS 재공품 RPA 실행 중...
+echo [START] Running MIS work-in-process RPA...
 python wip_daily_rpa.py %*
 
 echo.
 if %errorlevel% equ 0 (
-    echo [완료] RPA 정상 종료
+    echo [OK] RPA completed successfully.
 ) else (
-    echo [오류] RPA 실행 중 오류 발생 (코드: %errorlevel%)
+    echo [ERROR] RPA failed. Exit code: %errorlevel%
 )
 echo.
 pause

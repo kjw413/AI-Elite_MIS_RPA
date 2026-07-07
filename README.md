@@ -15,7 +15,7 @@ BEMS 웹앱(`AI-Elite_Energy-Dashboard-Web`)에서 분리된 독립 프로젝트
  DB_생산실적.xlsx · DB_재공품.xlsx  ─────►  엑셀 읽어 MySQL 테이블 UPSERT
 ```
 
-- **접점은 `SAMPLED_DB_DIR` 폴더의 엑셀 파일뿐.** RPA는 DB에 직접 쓰지 않습니다.
+- **접점은 `DB_MIS_DIR` 폴더의 엑셀 파일뿐.** RPA는 DB에 직접 쓰지 않습니다.
 - 에너지: RPA가 `RawDB_에너지.xlsx` 생성 → 웹이 startup에 직접 읽어 적재.
 - 생산실적: RPA가 `RawDB_생산실적.xlsx` 수집 → `production_builder.build_dataset` 재가공 →
   `DB_생산실적.xlsx` → 웹이 startup에 적재.
@@ -26,7 +26,7 @@ BEMS 웹앱(`AI-Elite_Energy-Dashboard-Web`)에서 분리된 독립 프로젝트
 ```
 AI-Elite_MIS_RPA/
 ├── mis_rpa/
-│   ├── config.py               # SAMPLED_DB_DIR 경로 해석 (.env)
+│   ├── config.py               # DB_MIS_DIR 경로 해석 (.env)
 │   ├── factories.py            # 공장 코드/도메인 상수
 │   ├── production_builder.py   # RawDB_생산실적 → DB_생산실적 재가공 (build_dataset 등)
 │   ├── wip_refactoring.py      # RawDB_재공품 → DB_재공품 재가공
@@ -49,7 +49,7 @@ python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
 copy .env.template .env
-REM .env 의 SAMPLED_DB_DIR 을 웹앱과 동일하게 맞추세요.
+REM .env 의 DB_MIS_DIR 을 웹앱과 동일하게 맞추세요.
 ```
 
 ## 실행

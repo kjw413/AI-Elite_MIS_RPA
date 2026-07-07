@@ -2,7 +2,7 @@
 """
 사내 MIS '(신)종합정보' 시스템에서
 기간별 제품 생산실적(일/월) 데이터를
-단일 Raw 파일(E:/Sampled DB/RawDB_생산실적.xlsx)의 카테고리 시트별로 자동 조회하여
+단일 Raw 파일(E:/DB_MIS/RawDB_생산실적.xlsx)의 카테고리 시트별로 자동 조회하여
 각 시트 1행에 기간 마커(__PERIOD__)를 적고 2행부터 그리드를 통째로 붙여넣고,
 이어서 그 Raw 파일을 합쳐 DB_생산실적.xlsx 까지 자동 생성한다.
 (재공품 RawDB_재공품.xlsx / DB_재공품.xlsx 2-파일 구조와 통일)
@@ -657,7 +657,7 @@ def main():
         "--dw-output", type=str, default=None,
         help="DW 통합 결과 출력 경로. 미지정 시 "
              "production_dw_service.DEFAULT_OUTPUT_PATH 사용 "
-             "(E:\\Sampled DB\\DB_생산실적.xlsx)"
+             "(E:\\DB_MIS\\DB_생산실적.xlsx)"
     )
     args = parser.parse_args()
 

@@ -8,7 +8,8 @@
 3. 기존 출력파일은 유지
 4. 단, 업데이트는 이번 RawData 기간 안에서만 수행
 5. 업데이트 기간 밖의 기존 값은 절대 변경하지 않음
-6. 출력은 공장별 시트(남양주1, 남양주2, 김해, 광주, 논산)로 저장
+6. RawData에 잠시 미등장한 기존 ItemCode 컬럼도 삭제하지 않음
+7. 출력은 공장별 시트(남양주1, 남양주2, 김해, 광주, 논산)로 저장
    (구버전 F-코드 시트가 있으면 자동 이관)
 """
 
@@ -319,27 +320,59 @@ def load_raw_data(input_file: str, sheet_name: str, plant: str) -> pd.DataFrame:
 def resolve_target_itemcodes(
     raw_df: pd.DataFrame,
     configured_itemcodes: List[str],
+    existing_itemcodes: List[str],
     plant: str,
 ) -> List[str]:
     """공장별 추적 ItemCode 결정.
 
     - configured_itemcodes 가 있으면 그대로 사용 (PLANT_ITEMCODES 화이트리스트)
-    - 비어있으면 RawData 에 등장한 ItemCode 만 사용 (현재 모든 공장 이 fallback)
-      (기존 DB 출력 컬럼은 합치지 않음 — 합치면 raw 에 없는 코드가
-       update window 안에서 0 으로 덮어써지는 버그 발생)
+    - 비어있으면 기존 DB 컬럼을 먼저 보존하고 RawData 신규 ItemCode 를 뒤에 추가
     """
     selected = normalize_itemcodes(configured_itemcodes)
     if selected:
         return selected
 
+    existing = normalize_itemcodes(existing_itemcodes)
     raw_itemcodes = normalize_itemcodes(raw_df[COL_ITEM].tolist())
-    if not raw_itemcodes:
+
+    merged_itemcodes = normalize_itemcodes(existing + raw_itemcodes)
+    if not merged_itemcodes:
         raise ValueError(
-            f"[{plant}] ItemCode 리스트가 비어 있고 RawData 에도 유효 ItemCode 가 없습니다."
+            f"[{plant}] ItemCode 리스트가 비어 있고 기존 DB/RawData 에도 유효 ItemCode 가 없습니다."
         )
 
-    log(f"[{plant}] PLANT_ITEMCODES 미지정 -> RawData ItemCode 자동 추적 ({len(raw_itemcodes)}개)")
-    return raw_itemcodes
+    preserved_only = [code for code in existing if code not in raw_itemcodes]
+    new_only = [code for code in raw_itemcodes if code not in existing]
+    log(
+        f"[{plant}] PLANT_ITEMCODES 미지정 -> 기존 DB {len(existing)}개 보존 + "
+        f"RawData 신규 {len(new_only)}개 추가 = {len(merged_itemcodes)}개 추적"
+    )
+    if preserved_only:
+        log(f"[{plant}] RawData 미등장 기존 ItemCode 보존: {len(preserved_only)}개")
+    return merged_itemcodes
+
+
+def load_existing_itemcodes(
+    output_file: str,
+    sheet_name: Optional[str],
+    plant: str,
+) -> List[str]:
+    """기존 출력 시트의 ItemCode 컬럼명을 헤더에서 읽는다."""
+    if not os.path.exists(output_file) or not sheet_name:
+        return []
+
+    log(f"[{plant}] 기존 출력 ItemCode 헤더 확인 중... (시트: {sheet_name})")
+    header_df = pd.read_excel(output_file, sheet_name=sheet_name, nrows=0)
+    if OUT_DATE_COL not in header_df.columns:
+        raise KeyError(f"[{plant}] 기존 출력 시트 '{sheet_name}'에 '{OUT_DATE_COL}' 컬럼이 없습니다.")
+
+    raw_columns = [str(col).strip() for col in header_df.columns]
+    itemcode_columns = [
+        col
+        for col in raw_columns
+        if col != OUT_DATE_COL and col and not col.lower().startswith("unnamed")
+    ]
+    return normalize_itemcodes(itemcode_columns)
 
 
 # =========================================================
@@ -592,9 +625,11 @@ def main():
         existing_sheet = resolve_existing_output_sheet_name(plant, output_sheet_names)
 
         raw_df = load_raw_data(INPUT_FILE, input_sheet, plant)
+        existing_itemcodes = load_existing_itemcodes(OUTPUT_FILE, existing_sheet, plant)
         itemcodes = resolve_target_itemcodes(
             raw_df=raw_df,
             configured_itemcodes=PLANT_ITEMCODES.get(plant, []),
+            existing_itemcodes=existing_itemcodes,
             plant=plant,
         )
         update_df, update_start, update_end = build_update_df(raw_df, itemcodes, plant)

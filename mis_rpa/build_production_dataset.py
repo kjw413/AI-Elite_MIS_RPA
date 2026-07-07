@@ -4,8 +4,8 @@
 # 사용 예:
 #   python tools/mis_rpa/build_production_dataset.py
 #   python tools/mis_rpa/build_production_dataset.py \
-#       --raw "E:/Sampled DB/RawDB_생산실적.xlsx" \
-#       --out "E:/Sampled DB/DB_생산실적.xlsx"
+#       --raw "E:/DB_MIS/RawDB_생산실적.xlsx" \
+#       --out "E:/DB_MIS/DB_생산실적.xlsx"
 from __future__ import annotations
 
 import argparse
