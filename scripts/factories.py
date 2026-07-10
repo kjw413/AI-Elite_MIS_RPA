@@ -22,19 +22,20 @@ FACTORY_MASTER: tuple[Factory, ...] = (
     Factory("김해", "F20", "김해", "#f97316", "F20"),
     Factory("광주", "F30", "이천", "#22c55e", "F30"),
     Factory("논산", "F40", "부여", "#ef4444", "F40"),
+    Factory("경산", "F50", "대구", "#14b8a6", "F50"),  # 2026-07 신규 (냉동)
 )
 
 FACTORY_PHYSICAL_DISPLAY_ORDER: tuple[str, ...] = tuple(f.label for f in FACTORY_MASTER)
 FACTORY_DISPLAY_ORDER: tuple[str, ...] = (
-    "전사", "남양주1", "남양주2", "남양주", "김해", "광주", "논산",
+    "전사", "남양주1", "남양주2", "남양주", "김해", "광주", "논산", "경산",
 )
 FACTORY_FILTER_OPTIONS: tuple[str, ...] = (
-    "남양주1", "남양주2", "남양주", "김해", "광주", "논산",
+    "남양주1", "남양주2", "남양주", "김해", "광주", "논산", "경산",
 )
 FACTORY_AGGREGATE_DISPLAY_ORDER: tuple[str, ...] = (
-    "전사", "남양주", "김해", "광주", "논산",
+    "전사", "남양주", "김해", "광주", "논산", "경산",
 )
-DASHBOARD_FACTORY_ORDER: tuple[str, ...] = ("남양주", "김해", "광주", "논산")
+DASHBOARD_FACTORY_ORDER: tuple[str, ...] = ("남양주", "김해", "광주", "논산", "경산")
 
 BATCH_ALL_FACTORIES_LABEL = "전체"
 PREDICTION_FACTORY_OPTIONS: tuple[str, ...] = (
@@ -62,6 +63,7 @@ PRODUCTION_DAILY_FACTORY_MAP: dict[str, str] = {
     "김해": "김해",
     "광주": "광주",
     "논산": "논산",
+    "경산": "경산",
 }
 PRODUCTION_PARENT_FACTORY_CODES: frozenset[str] = frozenset(
     f.production_parent or f.f_code for f in FACTORY_MASTER
@@ -77,7 +79,7 @@ FACTORY_COLORS: dict[str, str] = {
     **{f.label: f.color for f in FACTORY_MASTER},
 }
 DASHBOARD_FACTORY_COLORS: dict[str, str] = {
-    key: FACTORY_COLORS[key] for key in ("전사", "남양주", "김해", "광주", "논산")
+    key: FACTORY_COLORS[key] for key in ("전사", "남양주", "김해", "광주", "논산", "경산")
 }
 
 SHEET_TO_FACTORY_MAP: dict[str, str] = {
@@ -96,6 +98,7 @@ FACTORY_QUERY_ORDER: tuple[tuple[str, str | None], ...] = (
     ("김해", "김해"),
     ("광주", "광주"),
     ("논산", "논산"),
+    ("경산", "경산"),
 )
 
 YOY_FACTORY_DEFS: tuple[tuple[str, str | None], ...] = (
@@ -106,6 +109,7 @@ YOY_FACTORY_DEFS: tuple[tuple[str, str | None], ...] = (
     ("김해", "김해"),
     ("광주", "광주"),
     ("논산", "논산"),
+    ("경산", "경산"),
 )
 
 ENERGY_UNIT_CALC_MAP: dict[str, str] = {

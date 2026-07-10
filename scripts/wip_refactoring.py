@@ -41,7 +41,7 @@ from mis_rpa.config import sampled_db_path_str
 INPUT_FILE = sampled_db_path_str("RawDB_재공품.xlsx", "WIP_ITEM_MASTER_XLSX")
 OUTPUT_FILE = sampled_db_path_str("DB_재공품.xlsx", "WIP_SUMMARY_XLSX")
 
-PLANTS = ["F10A", "F10B", "F20", "F30", "F40"]
+PLANTS = ["F10A", "F10B", "F20", "F30", "F40", "F50"]
 
 # 공장별 ItemCode 화이트리스트 (PLANT_ITEMCODES).
 # 모든 공장이 비어 있음 = RawData 에 등장한 ItemCode 를 그대로 추적
@@ -58,6 +58,7 @@ INPUT_SHEET_BY_PLANT: Dict[str, str] = {
     "F20": "김해",
     "F30": "광주",
     "F40": "논산",
+    "F50": "경산",
 }
 
 # RawDB의 시트명이 아직 한글로 통일되지 않은 환경(또는 다시 F-코드로 되돌린
@@ -68,6 +69,7 @@ LEGACY_INPUT_SHEET_BY_PLANT: Dict[str, List[str]] = {
     "F20": ["F20"],
     "F30": ["F30"],
     "F40": ["F40"],
+    "F50": ["F50"],
 }
 
 OUTPUT_SHEET_BY_PLANT: Dict[str, str] = {
@@ -76,6 +78,7 @@ OUTPUT_SHEET_BY_PLANT: Dict[str, str] = {
     "F20": "김해",
     "F30": "광주",
     "F40": "논산",
+    "F50": "경산",
 }
 
 # 새 시트명이 아직 없으면 동일 공장의 구버전 시트(F-코드 또는 옛 'Sheet1')를
@@ -87,6 +90,7 @@ LEGACY_OUTPUT_SHEET_BY_PLANT: Dict[str, List[str]] = {
     "F20": ["F20"],
     "F30": ["F30", "Sheet1"],
     "F40": ["F40"],
+    "F50": ["F50"],
 }
 
 # True면 아래 기간 강제 사용
@@ -100,7 +104,19 @@ CREATE_BACKUP = True
 COL_DATE = "일"
 COL_ITEM = "ItemCode"
 COL_ACTUAL = "실적량"
+COL_JOB = "Job_Number"
 OUT_DATE_COL = "날짜"
+
+# 외탁(임가공) 생산 제외 규칙 — 공장(plant) → 대상 ItemCode 집합.
+# 광주(F30) 탈지분유(260014)·생크림(냉동)(260016)은 Job_Number 가 숫자로만
+# 구성된 경우(예: 915165) 외탁 생산분이다. 자체 생산 Job 은 문자가 섞인다
+# (예: D26026584). 외탁은 자공장 에너지를 사용하지 않으므로 에너지 원단위
+# 분모(DB_재공품)에 포함하면 안 된다 → 해당 행의 실적량을 0 으로 치환한다.
+# (행 삭제가 아닌 0 치환인 이유: (날짜,품목) 그룹이 남아야 병합 단계에서
+#  기존 오염값을 0 으로 덮어쓴다. 삭제하면 셀이 NaN → 기존값 보존 → 갱신 안 됨.)
+OUTSOURCED_EXCLUDE_ITEMCODES: Dict[str, set] = {
+    "F30": {"260014", "260016"},
+}
 
 
 # =========================================================
@@ -314,6 +330,35 @@ def load_raw_data(input_file: str, sheet_name: str, plant: str) -> pd.DataFrame:
 
     df = df[~df[COL_ITEM].str.lower().isin({"", "nan", "none", "nat"})]
     df = df.dropna(subset=[COL_DATE])
+    df = zero_outsourced_actuals(df, plant)
+    return df
+
+
+def zero_outsourced_actuals(df: pd.DataFrame, plant: str) -> pd.DataFrame:
+    """외탁 생산 행(숫자로만 구성된 Job_Number)의 실적량을 0 으로 치환.
+
+    OUTSOURCED_EXCLUDE_ITEMCODES 에 등록된 (공장, ItemCode) 만 대상.
+    """
+    target_items = OUTSOURCED_EXCLUDE_ITEMCODES.get(plant)
+    if not target_items:
+        return df
+    if COL_JOB not in df.columns:
+        log(f"[{plant}] '{COL_JOB}' 컬럼 없음 -> 외탁 제외 규칙 건너뜀")
+        return df
+
+    # Excel 이 숫자 Job 을 수치형으로 읽으면 "915165.0" 이 되므로 ".0" 잔재 제거 후 판정
+    job = df[COL_JOB].astype(str).str.strip().str.replace(r"\.0$", "", regex=True)
+    outsourced = df[COL_ITEM].isin(target_items) & job.str.fullmatch(r"\d+")
+
+    n_rows = int(outsourced.sum())
+    if n_rows:
+        excluded_qty = float(df.loc[outsourced, COL_ACTUAL].sum())
+        df = df.copy()
+        df.loc[outsourced, COL_ACTUAL] = 0.0
+        log(
+            f"[{plant}] 외탁 생산 {n_rows}건 실적량 0 처리 "
+            f"(제외 물량 {excluded_qty:,.0f}) — 대상 품목: {sorted(target_items)}"
+        )
     return df
 
 

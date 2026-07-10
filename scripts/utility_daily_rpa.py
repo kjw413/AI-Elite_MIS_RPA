@@ -90,6 +90,7 @@ FACTORY_SHEET_MAP = OrderedDict([
     ("F20", "김해"),
     ("F30", "광주"),
     ("F40", "논산"),
+    ("F50", "경산"),
 ])
 
 # Excel 파일 경로
