@@ -24,8 +24,8 @@ BEMS 웹앱(`AI-Elite_Energy-Dashboard-Web`)에서 분리된 독립 프로젝트
 ## 구조
 
 ```
-AI-Elite_MIS_RPA/
-├── mis_rpa/
+AI-Elite_AI-Elite-MIS_RPA/
+├── AI-Elite-MIS_RPA/
 │   ├── config.py               # DB_MIS_DIR 경로 해석 (.env)
 │   ├── factories.py            # 공장 코드/도메인 상수
 │   ├── production_builder.py   # RawDB_생산실적 → DB_생산실적 재가공 (build_dataset 등)
@@ -44,7 +44,7 @@ AI-Elite_MIS_RPA/
 ## 설치
 
 ```bat
-cd /d E:\AI-Elite_MIS_RPA
+cd /d E:\AI-Elite_AI-Elite-MIS_RPA
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
@@ -56,11 +56,11 @@ REM .env 의 DB_MIS_DIR 을 웹앱과 동일하게 맞추세요.
 
 ```bat
 REM 3종 전체 자동 실행 (생산실적 → 유틸리티 → 재공품)
-mis_rpa\전체_RPA_자동실행.bat
+AI-Elite-MIS_RPA\전체_RPA_자동실행.bat
 
 REM 개별 실행
-python mis_rpa\run_all_rpa.py --date 2026-06-30
-python mis_rpa\build_production_dataset.py      # 재가공만
+python AI-Elite-MIS_RPA\run_all_rpa.py --date 2026-06-30
+python AI-Elite-MIS_RPA\build_production_dataset.py      # 재가공만
 ```
 
 > **주의**: RPA 실행 중에는 화면 잠금/화면보호기/모니터 절전/RDP 세션 끊김이 없어야 합니다

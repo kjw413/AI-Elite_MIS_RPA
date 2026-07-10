@@ -48,7 +48,7 @@ _PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
-from mis_rpa._common import (  # noqa: E402
+from _common import (  # noqa: E402
     atomic_save_workbook,
     fast_click,
     find_mis_window,

@@ -179,7 +179,10 @@ def main() -> int:
     # ──────────────────────────────────────────────────────────
     # [2/3] 유틸리티 UI — MIS 연결 재사용
     header("[2/3] 유틸리티 RPA — MIS 화면 작업 (연결 재사용)")
-    util = MISUtilityRPA(year_month=None, dry_run=args.dry_run)
+    # 유틸리티는 기준년월만 받으므로, 공통 기준 종료일의 YYYY-MM을 전달한다.
+    # --date 미지정 때는 기존처럼 유틸리티가 D-2 기준으로 계산한다.
+    utility_year_month = args.date[:7] if args.date else None
+    util = MISUtilityRPA(year_month=utility_year_month, dry_run=args.dry_run)
     if can_share:
         util.attach_existing_window(shared_app, shared_window)
     rc_util = _run_rpa_safe("유틸리티", util.run)

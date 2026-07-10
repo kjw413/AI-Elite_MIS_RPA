@@ -1,7 +1,7 @@
 # MIS 마우스 좌클릭 좌표 기록기
 """
 좌클릭마다 (절대 좌표, MIS 창 기준 상대 좌표)를 콘솔과 로그 파일에 기록한다.
-tools/mis_rpa/production_coords.json / utility_coords.json 작성 시 사용.
+tools/AI-Elite-MIS_RPA/production_coords.json / utility_coords.json 작성 시 사용.
 
 사용법:
     1. MIS (신)종합정보 실행 + 대상 화면 진입

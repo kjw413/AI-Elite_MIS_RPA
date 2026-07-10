@@ -20,7 +20,7 @@ except Exception:
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from mis_rpa import production_builder as svc  # noqa: E402
+import production_builder as svc  # noqa: E402
 
 HEADER = ["Item Code", "Item 명", "물품대", "누계 계획", "누계 실적", "누계 진척률",
           "01일", "02일", "03일"]

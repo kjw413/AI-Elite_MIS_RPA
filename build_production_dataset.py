@@ -2,8 +2,8 @@
 # DB_생산실적.xlsx (공장별 wide + 제품마스터 + 계획 + daily)를 만듭니다.
 #
 # 사용 예:
-#   python tools/mis_rpa/build_production_dataset.py
-#   python tools/mis_rpa/build_production_dataset.py \
+#   python tools/AI-Elite-AI-Elite-MIS_RPA/build_production_dataset.py
+#   python tools/AI-Elite-AI-Elite-MIS_RPA/build_production_dataset.py \
 #       --raw "E:/DB_MIS/RawDB_생산실적.xlsx" \
 #       --out "E:/DB_MIS/DB_생산실적.xlsx"
 from __future__ import annotations
@@ -21,11 +21,11 @@ try:
 except Exception:
     pass
 
-# tools/mis_rpa/file.py → 2단계 위가 프로젝트 루트
+# tools/AI-Elite-MIS_RPA/file.py → 2단계 위가 프로젝트 루트
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from mis_rpa.production_builder import (  # noqa: E402
+from production_builder import (  # noqa: E402
     DEFAULT_OUTPUT_PATH,
     DEFAULT_RAW_PATH,
     build_dataset,

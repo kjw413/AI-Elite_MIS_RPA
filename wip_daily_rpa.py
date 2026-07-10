@@ -55,12 +55,12 @@ Timings.after_clickinput_wait = 0.01
 Timings.after_setfocus_wait = 0.01
 Timings.after_sendkeys_key_wait = 0.001
 
-# 프로젝트 루트(app/...) import 보장. tools/mis_rpa/file.py → 2단계 위가 루트.
+# 프로젝트 루트(app/...) import 보장. tools/AI-Elite-MIS_RPA/file.py → 2단계 위가 루트.
 _PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
-from mis_rpa._common import (
+from _common import (
     fast_click,
     find_mis_window,
     get_clipboard_sequence,
@@ -474,7 +474,7 @@ class MISWIPRPA:
         log.info("DB 통합 단계 시작 (RawDB_재공품 → DB_재공품.xlsx)")
         log.info("=" * 60)
         try:
-            from mis_rpa import wip_refactoring as WIP_refactoring
+            import wip_refactoring as WIP_refactoring
         except Exception as exc:
             log.error(f"WIP_refactoring import 실패: {exc}", exc_info=True)
             return False

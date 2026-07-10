@@ -49,8 +49,8 @@ from typing import Iterable
 
 import pandas as pd
 
-from mis_rpa.config import sampled_db_path
-from mis_rpa.factories import (
+from config import sampled_db_path
+from factories import (
     FACTORY_CODE_TO_KR as DOMAIN_FACTORY_CODE_TO_KR,
     FACTORY_KR_TO_CODE as DOMAIN_FACTORY_KR_TO_CODE,
     FACTORY_PHYSICAL_DISPLAY_ORDER,
