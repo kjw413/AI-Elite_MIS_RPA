@@ -15,7 +15,7 @@ E:\\DB_MIS\\RawDB_재공품.xlsx 의 기존 시트(남양주1/남양주2/김해/
   1. MIS 앱 연결 (pywinauto UIA backend)
   2. 트리 메뉴 '생산계획 대비 실적현황(완제품/재공품)' 진입 (더블클릭)
   3. 기준일자 시작일 클릭 → 입력 → TAB → 종료일 입력 → ENTER
-       (시작 = D-2가 속한 월의 1일, 종료 = D-2)
+       (시작 = D-1가 속한 월의 1일, 종료 = D-1)
   4. Category1 드롭다운 → '재공품' 선택
   5. 표시구분 '소계' 체크박스 해제 (기본 체크 가정 → 1회 토글)
   6. '실적일자 기준' 탭 선택
@@ -30,7 +30,7 @@ E:\\DB_MIS\\RawDB_재공품.xlsx 의 기존 시트(남양주1/남양주2/김해/
      - WIP_refactoring 가 ItemCode 기반으로 F10A/F10B 분리, 연속 날짜 보정, 출력 백업까지 처리
 
 Usage:
-  python wip_daily_rpa.py                  # 기본: D-2 + DB 통합 자동 수행
+  python wip_daily_rpa.py                  # 기본: D-1 + DB 통합 자동 수행
   python wip_daily_rpa.py --date 2026-05-14
   python wip_daily_rpa.py --dry-run        # MIS 조회만, Excel/DB 미기록
   python wip_daily_rpa.py --skip-db-build  # Raw 샘플링만, DB 통합 생략
@@ -148,7 +148,7 @@ class MISWIPRPA:
         build_db: bool = True,
     ):
         if ref_date is None:
-            d = datetime.now() - timedelta(days=2)
+            d = datetime.now() - timedelta(days=1)
         else:
             d = datetime.strptime(ref_date, "%Y-%m-%d")
 
@@ -600,7 +600,7 @@ def main():
     )
     parser.add_argument(
         "--date", type=str, default=None,
-        help="기준 종료일 (YYYY-MM-DD). 미지정 시 D-2 자동. 시작일은 해당 월 1일."
+        help="기준 종료일 (YYYY-MM-DD). 미지정 시 D-1 자동. 시작일은 해당 월 1일."
     )
     parser.add_argument(
         "--dry-run", action="store_true",

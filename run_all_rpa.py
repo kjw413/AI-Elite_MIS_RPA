@@ -131,7 +131,7 @@ def main() -> int:
         description="MIS 3종 RPA 자동 실행 (in-process, MIS 연결 1회 공유)"
     )
     ap.add_argument("--date", type=str, default=None,
-                    help="기준 종료일 (YYYY-MM-DD). 미지정 시 D-2 자동.")
+                    help="기준 종료일 (YYYY-MM-DD). 미지정 시 D-1 자동.")
     ap.add_argument("--dry-run", action="store_true",
                     help="MIS 조회만 — Excel/DB 미기록.")
     args, _unknown = ap.parse_known_args()
@@ -180,7 +180,7 @@ def main() -> int:
     # [2/3] 유틸리티 UI — MIS 연결 재사용
     header("[2/3] 유틸리티 RPA — MIS 화면 작업 (연결 재사용)")
     # 유틸리티는 기준년월만 받으므로, 공통 기준 종료일의 YYYY-MM을 전달한다.
-    # --date 미지정 때는 기존처럼 유틸리티가 D-2 기준으로 계산한다.
+    # --date 미지정 때는 기존처럼 유틸리티가 D-1 기준으로 계산한다.
     utility_year_month = args.date[:7] if args.date else None
     util = MISUtilityRPA(year_month=utility_year_month, dry_run=args.dry_run)
     if can_share:

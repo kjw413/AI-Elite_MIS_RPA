@@ -7,7 +7,7 @@
   1. MIS 앱 연결 (pywinauto UIA backend)
   2. 사업장별 순회 (F1A→F1B→F20→F30→F40)
      a. ORG 드롭다운에서 공장 선택
-     b. 기준년월 설정 (D-2 기준)
+     b. 기준년월 설정 (D-1 기준)
      c. 조회 버튼 클릭 + 로딩 대기
      d. 그리드 Ctrl+A → Ctrl+C → 확인 다이얼로그
      e. 클립보드 TSV 파싱 (필드명 제거, 데이터만)
@@ -15,7 +15,7 @@
   3. Excel 저장
 
 Usage:
-  python utility_daily_rpa.py              # 기본: D-2 기준월
+  python utility_daily_rpa.py              # 기본: D-1 기준월
   python utility_daily_rpa.py --ym 2026-05 # 특정 월 지정
   python utility_daily_rpa.py --dry-run    # MIS 조회만, Excel 미기록
 """
@@ -343,7 +343,7 @@ class MISUtilityRPA:
 
     def __init__(self, year_month: str = None, dry_run: bool = False):
         if year_month is None:
-            ref_date = datetime.now() - timedelta(days=2)
+            ref_date = datetime.now() - timedelta(days=1)
             self.year_month = ref_date.strftime("%Y-%m")
         else:
             self.year_month = year_month
@@ -355,7 +355,7 @@ class MISUtilityRPA:
         self.app = None
         self.main_window = None
         log.info(f"=== MIS 유틸리티 RPA 초기화 ===")
-        log.info(f"  기준년월: {self.year_month}  (D-2 자동 계산)")
+        log.info(f"  기준년월: {self.year_month}  (D-1 자동 계산)")
         log.info(f"  Dry-run: {self.dry_run}")
 
     # -----------------------------------------------------------------------
@@ -664,7 +664,7 @@ def main():
     )
     parser.add_argument(
         "--ym", type=str, default=None,
-        help="기준년월 (YYYY-MM). 미지정 시 D-2 자동 계산"
+        help="기준년월 (YYYY-MM). 미지정 시 D-1 자동 계산"
     )
     parser.add_argument(
         "--dry-run", action="store_true",

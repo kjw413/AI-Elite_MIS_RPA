@@ -2,7 +2,7 @@
 @echo off
 echo ============================================
 echo  MIS Utility Usage RPA
-echo  Date range: auto D-2
+echo  Date range: auto D-1
 echo ============================================
 echo.
 

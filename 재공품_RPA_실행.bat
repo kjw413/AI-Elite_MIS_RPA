@@ -3,7 +3,7 @@
 @echo off
 echo ============================================
 echo  MIS Work-in-Process RPA
-echo  Date range: auto D-2 (month start to D-2)
+echo  Date range: auto D-1 (month start to D-1)
 echo  Data file : configured RawDB WIP workbook
 echo ============================================
 echo.

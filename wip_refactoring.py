@@ -279,8 +279,8 @@ def get_update_period(raw_df: pd.DataFrame) -> Tuple[pd.Timestamp, pd.Timestamp]
 
     # raw 의 시작 날짜만 제외.
     # MIS 특성상 조회 시작일은 전일 실적이 끼어드는 케이스가 있어 update window 에서 제외한다.
-    # 끝 날짜는 보존 — RPA 가 D-2까지만 조회한다는 전제 하에 raw_max 는 완료된 영업일이므로
-    # 잘라내면 분석/예측에 D-2 데이터가 1일 늦게 반영되는 부작용이 더 큼.
+    # 끝 날짜는 보존 — RPA 가 D-1까지만 조회한다는 전제 하에 raw_max 는 완료된 영업일이므로
+    # 잘라내면 분석/예측에 D-1 데이터가 1일 늦게 반영되는 부작용이 더 큼.
     span_days = (raw_max - raw_min).days
     if span_days >= 1:
         start = raw_min + pd.Timedelta(days=1)

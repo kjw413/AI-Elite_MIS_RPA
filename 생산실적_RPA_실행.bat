@@ -4,7 +4,7 @@
 @echo off
 echo ============================================
 echo  MIS Production Results RPA
-echo  Date range: auto D-2 (month start to D-2)
+echo  Date range: auto D-1 (month start to D-1)
 echo  Steps     : 1) Raw sampling  2) Build production DW workbook
 echo ============================================
 echo.

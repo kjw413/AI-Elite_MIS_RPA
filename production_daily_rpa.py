@@ -15,8 +15,8 @@
   2. RawDB_생산실적.xlsx 시트명 스캔 → (sheet_name, factory, category) 목록 생성
   3. 공장별로 묶어 순회 (공장 드롭다운 변경 최소화)
      a. ORG 드롭다운 공장 선택 (공장이 바뀔 때만)
-     b. 기준일자(시작) = D-2가 속한 월의 1일
-        기준일자(종료) = D-2
+     b. 기준일자(시작) = D-1가 속한 월의 1일
+        기준일자(종료) = D-1
      c. category1 드롭다운 선택
      d. 항목구분 드롭다운 "중량" 선택 (최초 1회)
      e. 조회 + 로딩 대기
@@ -30,7 +30,7 @@
        production_dw_sync_service 가 파일 mtime 변화를 보고 자동 처리
 
 Usage:
-  python production_daily_rpa.py              # 기본: D-2 기준 + DW 통합 자동 수행
+  python production_daily_rpa.py              # 기본: D-1 기준 + DW 통합 자동 수행
   python production_daily_rpa.py --date 2026-05-14
   python production_daily_rpa.py --dry-run    # MIS 조회만, Excel/DW 미기록
   python production_daily_rpa.py --skip-dw-build   # Raw 샘플링만, DW 통합 생략
@@ -187,7 +187,7 @@ class MISProductionRPA:
         dw_output: str | None = None,
     ):
         if ref_date is None:
-            d = datetime.now() - timedelta(days=2)
+            d = datetime.now() - timedelta(days=1)
         else:
             d = datetime.strptime(ref_date, "%Y-%m-%d")
 
@@ -643,7 +643,7 @@ def main():
     )
     parser.add_argument(
         "--date", type=str, default=None,
-        help="기준 종료일 (YYYY-MM-DD). 미지정 시 D-2 자동. 시작일은 해당 월 1일."
+        help="기준 종료일 (YYYY-MM-DD). 미지정 시 D-1 자동. 시작일은 해당 월 1일."
     )
     parser.add_argument(
         "--dry-run", action="store_true",

@@ -930,7 +930,7 @@ def consolidate_raw_file(raw_path: Path | str | None = None) -> pd.DataFrame:
             logger.warning(f"빈 파싱 결과: {sn}")
             continue
 
-        # 마커 기간 [start, end] 로 클립 (D-2 이후 미래 일자의 0 은 이력에 쓰지 않음)
+        # 마커 기간 [start, end] 로 클립 (D-1 이후 미래 일자의 0 은 이력에 쓰지 않음)
         df_one = df_one[(df_one["date"] >= start) & (df_one["date"] <= end)]
         if df_one.empty:
             continue
