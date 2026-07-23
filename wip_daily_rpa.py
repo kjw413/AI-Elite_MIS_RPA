@@ -210,7 +210,7 @@ class MISWIPRPA:
             return {}
 
     # -----------------------------------------------------------------------
-    # MIS 연결
+    # MIS 연결 (화면 체크)
     # -----------------------------------------------------------------------
     def attach_existing_window(self, app, main_window) -> None:
         """오케스트레이터가 이미 연결한 MIS 윈도우를 주입 — 재연결 생략."""
@@ -240,7 +240,7 @@ class MISWIPRPA:
             raise SystemExit(1)
 
     # -----------------------------------------------------------------------
-    # 메뉴 진입 (트리메뉴 더블클릭)
+    # Step 1: 메뉴 진입 (트리메뉴 더블클릭)
     # -----------------------------------------------------------------------
     def navigate_to_wip_screen(self):
         log.info("'생산계획 대비 실적현황(완제품/재공품)' 화면으로 이동 중...")
@@ -251,7 +251,7 @@ class MISWIPRPA:
         time.sleep(WAIT_SCREEN_LOAD)
 
     # -----------------------------------------------------------------------
-    # 공장 선택
+    # Step 2: 공장 선택
     # -----------------------------------------------------------------------
     def select_factory(self, org_code: str):
         log.info(f"공장 선택: {org_code}")
@@ -271,7 +271,7 @@ class MISWIPRPA:
         time.sleep(WAIT_SHORT)
 
     # -----------------------------------------------------------------------
-    # 기준일자 설정 (시작 클릭/입력/TAB/종료 입력/ENTER)
+    # Step 3: 기준일자 설정 (시작 클릭/입력/TAB/종료 입력/ENTER)
     # -----------------------------------------------------------------------
     def set_date_range(self):
         log.info(f"기준일자 설정: {self.start_date} ~ {self.end_date}")
@@ -300,7 +300,16 @@ class MISWIPRPA:
         time.sleep(WAIT_SHORT)
 
     # -----------------------------------------------------------------------
-    # Category1 = 재공품 선택
+    # Step 4: '실적일자 기준' 탭 선택
+    # -----------------------------------------------------------------------
+    def select_actual_basis_tab(self):
+        x, y = self.coords.get("actual_basis_tab", [451, 183])
+        fast_click(self.main_window, x, y)
+        log.info(f"'실적일자 기준' 탭 클릭 ({x}, {y})")
+        time.sleep(WAIT_SHORT)
+        
+    # -----------------------------------------------------------------------
+    # Step 5: Category1 = 재공품 선택
     # -----------------------------------------------------------------------
     def select_category1_wip(self):
         log.info(f"Category1 선택: {CATEGORY1}")
@@ -319,7 +328,7 @@ class MISWIPRPA:
         time.sleep(WAIT_SHORT)
 
     # -----------------------------------------------------------------------
-    # 표시구분 '소계' 체크박스 해제 (1회 토글)
+    # Step 6: 표시구분 '소계' 체크박스 해제 (1회 토글)
     # -----------------------------------------------------------------------
     def toggle_subtotal_off(self):
         x, y = self.coords.get("subtotal_checkbox", [1210, 107])
@@ -328,16 +337,7 @@ class MISWIPRPA:
         time.sleep(WAIT_SHORT)
 
     # -----------------------------------------------------------------------
-    # '실적일자 기준' 탭 선택
-    # -----------------------------------------------------------------------
-    def select_actual_basis_tab(self):
-        x, y = self.coords.get("actual_basis_tab", [451, 183])
-        fast_click(self.main_window, x, y)
-        log.info(f"'실적일자 기준' 탭 클릭 ({x}, {y})")
-        time.sleep(WAIT_SHORT)
-
-    # -----------------------------------------------------------------------
-    # 조회
+    # Step 7: 조회
     # -----------------------------------------------------------------------
     def click_query(self):
         log.info("조회 버튼 클릭...")
@@ -348,7 +348,7 @@ class MISWIPRPA:
         time.sleep(WAIT_QUERY_LOAD)
 
     # -----------------------------------------------------------------------
-    # 그리드 복사
+    # Step 8: 그리드 복사
     # -----------------------------------------------------------------------
     def copy_grid_data(self, expected_token: str | None = None) -> str:
         """그리드 좌상단 복사 버튼을 눌러 클립보드 데이터를 읽는다.
@@ -443,7 +443,7 @@ class MISWIPRPA:
         time.sleep(WAIT_SHORT)
 
     # -----------------------------------------------------------------------
-    # 출력 파일 백업 (단일 파일)
+    # Step 9: 출력 파일 백업 (단일 파일)
     # -----------------------------------------------------------------------
     def backup_output(self):
         if self.dry_run or not os.path.exists(RAW_FILE):
@@ -461,7 +461,7 @@ class MISWIPRPA:
             log.warning(f"백업 실패: {e}")
 
     # -----------------------------------------------------------------------
-    # DB 통합 (RawDB_재공품.xlsx → DB_재공품.xlsx)
+    # Step 10: DB 통합 (RawDB_재공품.xlsx → DB_재공품.xlsx)
     # -----------------------------------------------------------------------
     def consolidate_to_db(self) -> bool:
         """
@@ -506,9 +506,9 @@ class MISWIPRPA:
         # 화면 진입 + 조회 전 공통 설정 (공장 무관)
         self.navigate_to_wip_screen()
         self.set_date_range()
+        self.select_actual_basis_tab()
         self.select_category1_wip()
         self.toggle_subtotal_off()
-        self.select_actual_basis_tab()
 
         self.backup_output()
 
