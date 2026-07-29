@@ -1,0 +1,132 @@
+<h2>변수·반복·대기·추출 워크플로 모델</h2>
+<p class="subtitle">코드를 작성하지 않고도 공장×분류 같은 반복 수집과 동적 날짜를 구성합니다.</p>
+
+<div class="section">
+  <div class="label">워크플로 구성 요소</div>
+  <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;text-align:center">
+    <div style="background:#eef5ff;border:2px solid #5b82c4;border-radius:10px;padding:12px">
+      <strong>변수</strong><br><small>문자·날짜·숫자·경로·선택·비밀</small>
+    </div>
+    <div style="background:#f5f0ff;border:2px solid #8566c8;border-radius:10px;padding:12px">
+      <strong>데이터 원본</strong><br><small>화면 입력·목록·CSV·Excel</small>
+    </div>
+    <div style="background:#e9f8ee;border:2px solid #48a76b;border-radius:10px;padding:12px">
+      <strong>반복 그룹</strong><br><small>행 반복·최대 2단계 중첩</small>
+    </div>
+    <div style="background:#fff7e8;border:2px solid #c99539;border-radius:10px;padding:12px">
+      <strong>조건·대기</strong><br><small>요소·창·값·클립보드·파일 상태</small>
+    </div>
+    <div style="background:#fff1f1;border:2px solid #bf5b5b;border-radius:10px;padding:12px">
+      <strong>검증·출력</strong><br><small>행수·헤더·내용 검사 후 Excel/CSV</small>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="label">예시 — 공장별 월간 실적 추출</div>
+  <div class="mockup">
+    <div class="mockup-header">업무 담당자에게 보이는 단계 트리</div>
+    <div class="mockup-body">
+      <div style="display:grid;grid-template-columns:1fr 2.4fr;gap:14px">
+        <div>
+          <div class="placeholder">
+            <strong>실행 변수</strong><br>
+            기준일 = 실행일 - 1일<br>
+            시작일 = 기준일의 월초<br>
+            종료일 = 기준일
+          </div>
+          <div class="placeholder" style="margin-top:10px">
+            <strong>반복 데이터</strong><br>
+            factories.xlsx<br>
+            공장코드 · 공장명
+          </div>
+        </div>
+        <div class="placeholder">
+          <strong>▾ 반복: Excel의 각 공장 행</strong><br>
+          &nbsp;&nbsp;1. 공장 선택 → <code>{{ row.공장코드 }}</code><br>
+          &nbsp;&nbsp;2. 시작일 입력 → <code>{{ 시작일 }}</code><br>
+          &nbsp;&nbsp;3. 종료일 입력 → <code>{{ 종료일 }}</code><br>
+          &nbsp;&nbsp;4. 조회 버튼 클릭<br>
+          &nbsp;&nbsp;5. <strong>조회 결과가 준비될 때까지 대기</strong> (최대 60초)<br>
+          &nbsp;&nbsp;6. 표 복사 → 클립보드가 바뀔 때까지 대기<br>
+          &nbsp;&nbsp;7. 공장명·필수 헤더·최소 행수 검증<br>
+          &nbsp;&nbsp;8. 결과 Excel에 <code>{{ row.공장명 }}</code> 시트로 저장<br>
+          &nbsp;&nbsp;9. <strong>선택 단계:</strong> 확인 팝업이 있으면 닫기<br>
+          <strong>▴ 반복 종료 — 다음 공장으로 checkpoint 저장</strong>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="label">고정 sleep 대신 상태 기반 대기</div>
+  <div class="split">
+    <div class="mockup">
+      <div class="mockup-header">기본 방식</div>
+      <div class="mockup-body">
+        <div class="placeholder"><strong>다음 조건 중 하나를 기다림</strong><br><br>
+          UI 요소가 보임·활성화됨<br>
+          입력값이 기대값과 일치<br>
+          새 창·팝업이 나타남/사라짐<br>
+          클립보드 sequence가 변경됨<br>
+          파일이 생성되고 크기가 안정됨
+        </div>
+      </div>
+    </div>
+    <div class="mockup">
+      <div class="mockup-header">좌표형 레거시 화면 fallback</div>
+      <div class="mockup-body">
+        <div class="placeholder"><strong>상태를 읽을 수 없을 때만</strong><br><br>
+          제한된 고정 대기 사용<br>
+          timeout과 재시도 횟수 필수<br>
+          이후 클립보드·파일·데이터 검증 필수<br>
+          검증할 수 없으면 경고 상태
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="label">MVP 제어 흐름 경계</div>
+  <div class="pros-cons">
+    <div class="pros">
+      <h4>포함</h4>
+      <ul>
+        <li>목록·CSV·Excel 행 반복</li>
+        <li>최대 2단계 중첩 반복</li>
+        <li>요소가 있으면 실행하는 선택 단계</li>
+        <li>iteration별 재시도·건너뛰기·중단 정책</li>
+        <li>중단 후 마지막 성공 행부터 재개</li>
+      </ul>
+    </div>
+    <div class="cons">
+      <h4>MVP 제외</h4>
+      <ul>
+        <li>사용자 Python 코드 실행</li>
+        <li>임의 수식 언어와 복잡한 분기 그래프</li>
+        <li>병렬 GUI 조작</li>
+        <li>이미지/OCR 판정</li>
+        <li>웹·메일·API 어댑터 실제 구현</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<div class="options">
+  <div class="option" data-choice="workflow-model-approved" onclick="toggleSelect(this)">
+    <div class="letter">✓</div>
+    <div class="content">
+      <h3>이 워크플로 모델로 진행</h3>
+      <p>다음으로 오류 처리·보안·실행 보고 설계를 검토합니다.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="workflow-model-revise" onclick="toggleSelect(this)">
+    <div class="letter">↺</div>
+    <div class="content">
+      <h3>수정 필요</h3>
+      <p>반복 범위, 조건 또는 추출 저장 방식에서 바꿀 점을 알려주세요.</p>
+    </div>
+  </div>
+</div>

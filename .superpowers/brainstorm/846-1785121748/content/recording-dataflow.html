@@ -1,0 +1,119 @@
+<h2>녹화 → 편집 → 실행 워크플로 변환</h2>
+<p class="subtitle">사용자의 원본 행동은 보존하고, 자동 정리 결과를 사람이 확인한 뒤 실행 가능한 워크플로로 확정합니다.</p>
+
+<div class="section">
+  <div class="label">1. 안전한 녹화 세션</div>
+  <div class="mockup">
+    <div class="mockup-header">대상 창을 먼저 선택한 뒤 녹화 시작</div>
+    <div class="mockup-body">
+      <div style="display:grid;grid-template-columns:1fr auto 2fr;gap:12px;align-items:center">
+        <div class="placeholder" style="text-align:center">
+          <strong>업무 담당자</strong><br>
+          녹화 시작 / 일시정지 / 종료
+        </div>
+        <div style="font-size:26px">→</div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">
+          <div class="placeholder"><strong>입력 이벤트</strong><br><small>클릭·더블클릭·드래그·휠·문자·단축키</small></div>
+          <div class="placeholder"><strong>대상 문맥</strong><br><small>프로세스·창 제목·UIA selector 후보</small></div>
+          <div class="placeholder"><strong>환경 정보</strong><br><small>창 크기·DPI·모니터·상대좌표</small></div>
+        </div>
+      </div>
+      <div style="margin-top:12px;background:#fff4df;border:1px solid #d9a441;border-radius:8px;padding:10px">
+        <strong>보안 기본값:</strong> 암호 입력 컨트롤에서는 실제 키 값을 저장하지 않고
+        <code>secret_ref</code> 자리표시자만 생성합니다. 녹화 상태는 항상 화면 상단에 표시합니다.
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="label">2. 원본 로그와 실행 워크플로 분리</div>
+  <div class="split">
+    <div class="mockup">
+      <div class="mockup-header">recording.raw.jsonl — 변경하지 않음</div>
+      <div class="mockup-body">
+        <div class="placeholder">
+          10:21:03.104 · mouse_down · (609,108)<br>
+          10:21:03.181 · mouse_up · UIA Edit<br>
+          10:21:03.642 · Ctrl+A<br>
+          10:21:03.810 · "2026-07-01"<br>
+          10:21:04.102 · Enter
+        </div>
+        <p><small>감사·재편집용 원본. 실행기는 이 파일을 직접 실행하지 않습니다.</small></p>
+      </div>
+    </div>
+    <div class="mockup">
+      <div class="mockup-header">workflow.json — 검증된 실행 정의</div>
+      <div class="mockup-body">
+        <div class="placeholder">
+          <strong>단계 4 · 시작일 입력</strong><br>
+          Action: set_text<br>
+          Target: UIA Edit → 상대좌표 fallback<br>
+          Value: <code>{{ start_date }}</code><br>
+          Wait: 입력값 일치, 최대 3초
+        </div>
+        <p><small>스키마 검증을 통과한 버전만 실행할 수 있습니다.</small></p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="label">3. 자동 정리 후 사람이 확정</div>
+  <div style="display:grid;grid-template-columns:repeat(7,auto);gap:8px;align-items:center;text-align:center">
+    <div class="placeholder"><strong>Raw 이벤트</strong><br><small>세밀한 입력 기록</small></div>
+    <div>→</div>
+    <div class="placeholder"><strong>Normalizer</strong><br><small>클릭·문자·단축키 묶기</small></div>
+    <div>→</div>
+    <div class="placeholder"><strong>단계 편집기</strong><br><small>라벨·대기·검증 지정</small></div>
+    <div>→</div>
+    <div class="placeholder"><strong>Validator</strong><br><small>실행 가능 여부 검사</small></div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="label">4. 비개발자용 단계 편집 화면</div>
+  <div class="mockup">
+    <div class="mockup-header">왼쪽: 단계 목록 · 가운데: 대상 미리보기 · 오른쪽: 속성</div>
+    <div class="mockup-body">
+      <div style="display:grid;grid-template-columns:1.2fr 1.6fr 1.4fr;gap:10px">
+        <div class="placeholder">
+          ✓ 1. 조회 메뉴 열기<br>
+          ✓ 2. 공장 선택<br>
+          <strong>● 3. 시작일 입력</strong><br>
+          ! 4. 조회 결과 대기<br>
+          ✓ 5. 표 복사
+        </div>
+        <div class="placeholder" style="text-align:center">
+          <strong>대상 화면 미리보기</strong><br><br>
+          [ 시작일 입력칸 강조 ]<br><br>
+          <button class="mock-button">대상 다시 지정</button>
+        </div>
+        <div class="placeholder">
+          <strong>단계명</strong> 시작일 입력<br>
+          <strong>입력값</strong> 변수: 시작일<br>
+          <strong>찾기</strong> UIA → 좌표<br>
+          <strong>완료조건</strong> 값 일치<br><br>
+          <button class="mock-button">이 단계만 테스트</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="options">
+  <div class="option" data-choice="dataflow-approved" onclick="toggleSelect(this)">
+    <div class="letter">✓</div>
+    <div class="content">
+      <h3>이 데이터 흐름으로 진행</h3>
+      <p>다음으로 변수·반복·대기·검증의 워크플로 모델을 검토합니다.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="dataflow-revise" onclick="toggleSelect(this)">
+    <div class="letter">↺</div>
+    <div class="content">
+      <h3>수정 필요</h3>
+      <p>자동 정리, 원본 보존 또는 편집 방식에서 바꿀 부분을 알려주세요.</p>
+    </div>
+  </div>
+</div>

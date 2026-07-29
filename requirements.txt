@@ -1,0 +1,5 @@
+pandas>=2.0.0
+openpyxl>=3.1.0
+python-dotenv>=1.0.0
+pywinauto>=0.6.8
+pywin32>=306

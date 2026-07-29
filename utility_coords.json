@@ -1,0 +1,31 @@
+{
+    "description": "MIS 유틸리티 RPA 설정 파일 (창 기준 상대 좌표 + 대기 시간)",
+    "updated_at": "2026-06-30",
+    "_notes": {
+        "tree_menu": "(171, 163) '유틸리티 일자별 사용량 추이' 트리메뉴 더블클릭 진입 — UIA 측정 중심값(2026-05-28)"
+    },
+    "coords": {
+        "tree_menu": [171, 163],
+        "factory_dropdown": [417, 106],
+        "month_filter": [601, 107],
+        "query_button": [328, 66],
+        "copy_button": [332, 725],
+        "factory_list": {
+            "F1A": 167,
+            "F1B": 185,
+            "F30": 203,
+            "F20": 221,
+            "F10": 239,
+            "F40": 257,
+            "F50": 275
+        }
+    },
+    "wait": {
+        "short": 0.05,
+        "medium": 0.2,
+        "dropdown": 0.05,
+        "screen_load": 1.0,
+        "query_load": 1.5,
+        "copy_confirm": 0.4
+    }
+}

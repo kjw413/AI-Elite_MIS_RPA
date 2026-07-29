@@ -1,0 +1,132 @@
+<h2>키보드 입력 감지와 값 분류</h2>
+<p class="subtitle">키 하나하나를 그대로 재생하지 않고, “명령키”와 “업무 값”을 다른 액션으로 정규화합니다.</p>
+
+<div class="section">
+  <div class="label">1. 녹화 단계</div>
+  <div class="mockup">
+    <div class="mockup-header">키 이벤트 + 입력 대상 + 입력 완료 후 값</div>
+    <div class="mockup-body">
+      <div style="display:grid;grid-template-columns:1.2fr auto 1.4fr auto 1.4fr;gap:10px;align-items:center;text-align:center">
+        <div class="placeholder">
+          <strong>원본 키 이벤트</strong><br>
+          Ctrl↓ A↓ A↑ Ctrl↑<br>
+          2 0 2 6 - 0 7 - 0 1<br>
+          Enter↓ Enter↑
+        </div>
+        <div style="font-size:24px">+</div>
+        <div class="placeholder">
+          <strong>포커스 대상</strong><br>
+          프로세스·창<br>
+          UIA Edit / AutomationId<br>
+          암호 필드 여부
+        </div>
+        <div style="font-size:24px">+</div>
+        <div class="placeholder">
+          <strong>완료 후 관찰값</strong><br>
+          ValuePattern 값<br>
+          지원하지 않으면 사용자 확인<br>
+          한글 IME 조합 결과
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="label">2. 자동 정규화 규칙</div>
+  <div style="display:grid;grid-template-columns:1fr auto 1fr;gap:12px;align-items:stretch">
+    <div class="mockup">
+      <div class="mockup-header">고정 명령키</div>
+      <div class="mockup-body">
+        <div class="placeholder">
+          Enter · Tab · Esc · 화살표 · F5<br>
+          Ctrl+A · Ctrl+C · Alt+F4
+        </div>
+        <p><strong>→ press_key / hotkey</strong></p>
+        <p><small>항상 고정 동작으로 저장합니다. 값 변수와 섞지 않습니다.</small></p>
+      </div>
+    </div>
+    <div style="display:flex;align-items:center;font-size:28px">≠</div>
+    <div class="mockup">
+      <div class="mockup-header">문자·숫자 입력 묶음</div>
+      <div class="mockup-body">
+        <div class="placeholder">
+          2026-07-01 · F10 · 생산실적<br>
+          한글 IME 조합 문자열
+        </div>
+        <p><strong>→ set_text</strong></p>
+        <p><small>연속 입력을 하나의 의미 있는 단계로 묶고 값 유형을 지정합니다.</small></p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="label">3. set_text 값 유형 — 편집 화면에서 한 번 선택</div>
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">
+    <div style="background:#eef5ff;border:2px solid #5b82c4;border-radius:10px;padding:12px">
+      <strong>고정 텍스트</strong>
+      <p>항상 같은 코드·검색어</p>
+      <small>예: 생산실적, F10</small>
+    </div>
+    <div style="background:#e9f8ee;border:2px solid #48a76b;border-radius:10px;padding:12px">
+      <strong>실행 변수</strong>
+      <p>실행 전 입력 폼에서 받음</p>
+      <small>예: 시작일, 종료일, 저장 경로</small>
+    </div>
+    <div style="background:#f5f0ff;border:2px solid #8566c8;border-radius:10px;padding:12px">
+      <strong>반복 데이터 열</strong>
+      <p>목록·CSV·Excel 행에 연결</p>
+      <small>예: {{ row.factory }}, {{ row.date }}</small>
+    </div>
+    <div style="background:#fff1f1;border:2px solid #bf5b5b;border-radius:10px;padding:12px">
+      <strong>비밀값</strong>
+      <p>내용을 로그·JSON에 저장하지 않음</p>
+      <small>Windows 자격 증명 참조만 저장</small>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="label">4. 날짜는 비개발자용 규칙 빌더 제공</div>
+  <div class="mockup">
+    <div class="mockup-header">변수: 시작일</div>
+    <div class="mockup-body">
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;text-align:center">
+        <div class="placeholder"><strong>직접 입력</strong><br><small>실행 전 달력에서 선택</small></div>
+        <div class="placeholder"><strong>오늘 기준</strong><br><small>오늘 - 1일</small></div>
+        <div class="placeholder"><strong>월 기준</strong><br><small>실행일의 월초</small></div>
+        <div class="placeholder"><strong>반복 열</strong><br><small>Excel의 시작일 열</small></div>
+      </div>
+      <p style="margin-bottom:0"><strong>자동 제안:</strong> 날짜·숫자·경로 패턴은 “변수 후보” 배지를 붙이지만, 사용자의 확인 없이 고정값을 변수로 바꾸지 않습니다.</p>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="label">5. 실행 시 재생 전략</div>
+  <div style="display:grid;grid-template-columns:repeat(7,auto);gap:8px;align-items:center;text-align:center">
+    <div class="placeholder"><strong>대상 확인</strong><br><small>창·포커스 guard</small></div><div>→</div>
+    <div class="placeholder"><strong>값 계산</strong><br><small>고정/변수/반복/비밀</small></div><div>→</div>
+    <div class="placeholder"><strong>값 입력</strong><br><small>UIA Value 우선<br>붙여넣기/키 입력 fallback</small></div><div>→</div>
+    <div class="placeholder"><strong>결과 검증</strong><br><small>입력값 일치 확인</small></div>
+  </div>
+  <p><small>한글 IME는 물리 키 재생보다 완성 문자열을 UIA Value 또는 안전한 붙여넣기로 입력합니다. UIA 값을 읽을 수 없는 레거시 필드는 단계별 실제 테스트를 필수로 표시합니다.</small></p>
+</div>
+
+<div class="options">
+  <div class="option" data-choice="keyboard-model-approved" onclick="toggleSelect(this)">
+    <div class="letter">✓</div>
+    <div class="content">
+      <h3>이 키보드·값 모델로 진행</h3>
+      <p>명령키는 고정 액션, 텍스트는 사용자가 값 유형을 확정합니다.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="keyboard-model-revise" onclick="toggleSelect(this)">
+    <div class="letter">↺</div>
+    <div class="content">
+      <h3>수정 필요</h3>
+      <p>자동 분류 또는 값 유형에서 바꿀 부분을 채팅에 알려주세요.</p>
+    </div>
+  </div>
+</div>

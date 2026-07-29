@@ -1,0 +1,123 @@
+<h2>테스트·MVP 완료 기준·구현 순서</h2>
+<p class="subtitle">실제 MIS를 반복 클릭하며 개발하지 않고, 결정론적 테스트 앱과 가짜 어댑터에서 대부분을 검증합니다.</p>
+
+<div class="section">
+  <div class="label">1. 테스트 계층</div>
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;text-align:center;align-items:end">
+    <div style="background:#e9f8ee;border:2px solid #48a76b;border-radius:10px;padding:16px;min-height:155px">
+      <strong>단위 테스트</strong><br><br>
+      <small>스키마·변수·날짜 계산<br>반복·재시도·checkpoint<br>키 이벤트 정규화</small>
+    </div>
+    <div style="background:#eef5ff;border:2px solid #5b82c4;border-radius:10px;padding:16px;min-height:135px">
+      <strong>어댑터 계약 테스트</strong><br><br>
+      <small>Fake Windows adapter<br>임시 CSV/Excel·클립보드<br>오류 코드 일관성</small>
+    </div>
+    <div style="background:#f5f0ff;border:2px solid #8566c8;border-radius:10px;padding:16px;min-height:115px">
+      <strong>Windows 통합 테스트</strong><br><br>
+      <small>전용 Test Harness 앱<br>UIA·좌표·IME·팝업<br>지연·실패·재개 재현</small>
+    </div>
+    <div style="background:#fff7e8;border:2px solid #c99539;border-radius:10px;padding:16px;min-height:95px">
+      <strong>실제 MIS smoke test</strong><br><br>
+      <small>수동 승인된 조회 업무 1개<br>실데이터 저장 전 dry validation</small>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="label">2. RPA Test Harness — 제품과 함께 제공하는 검증용 앱</div>
+  <div class="mockup">
+    <div class="mockup-header">실제 앱 없이도 녹화·편집·실행·오류를 재현</div>
+    <div class="mockup-body">
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">
+        <div class="placeholder"><strong>입력 화면</strong><br><small>일반 텍스트·날짜·한글·암호 필드</small></div>
+        <div class="placeholder"><strong>조작 화면</strong><br><small>클릭·더블클릭·드래그·휠·단축키</small></div>
+        <div class="placeholder"><strong>지연 화면</strong><br><small>늦게 나타나는 버튼·팝업·clipboard</small></div>
+        <div class="placeholder"><strong>실패 화면</strong><br><small>창 이동·selector 중복·timeout·파일 잠금</small></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="label">3. MVP 완료 기준</div>
+  <div class="pros-cons">
+    <div class="pros">
+      <h4>사용자가 할 수 있어야 함</h4>
+      <ul>
+        <li>한 앱에서 대상 창 선택 → 녹화 → 편집 → 테스트 → 실행</li>
+        <li>마우스와 키보드 입력을 의미 있는 단계로 확인</li>
+        <li>날짜·텍스트를 실행 변수 또는 Excel/CSV 열로 지정</li>
+        <li>최대 2단계 반복으로 조회·복사·Excel/CSV 저장</li>
+        <li>실패 원인을 보고 마지막 성공 행부터 재개</li>
+        <li>JSON을 직접 열거나 LLM에 질문하지 않고 업무 구성</li>
+      </ul>
+    </div>
+    <div class="cons">
+      <h4>자동 검증되어야 함</h4>
+      <ul>
+        <li>UIA 우선, 환경 일치 시에만 상대좌표 fallback</li>
+        <li>고정 키와 변동 텍스트가 별도 액션으로 저장</li>
+        <li>로그·workflow·스크린샷에 비밀값이 없음</li>
+        <li>검증 실패 시 출력 파일을 정상 파일로 교체하지 않음</li>
+        <li>모든 테스트가 부모 프로젝트 import 없이 통과</li>
+        <li>Windows 10/11 x64에서 패키징된 앱 실행</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="label">4. 구현 마일스톤 — 각 단계가 독립적으로 테스트 가능</div>
+  <div style="display:grid;grid-template-columns:repeat(9,auto);gap:7px;align-items:center;text-align:center">
+    <div class="placeholder"><strong>M1</strong><br><small>독립 프로젝트<br>Core·Schema</small></div><div>→</div>
+    <div class="placeholder"><strong>M2</strong><br><small>입력 Recorder<br>Normalizer</small></div><div>→</div>
+    <div class="placeholder"><strong>M3</strong><br><small>Studio Editor<br>Validator</small></div><div>→</div>
+    <div class="placeholder"><strong>M4</strong><br><small>Windows Runner<br>상태 대기</small></div><div>→</div>
+    <div class="placeholder"><strong>M5</strong><br><small>변수·반복·추출<br>보고·패키징</small></div>
+  </div>
+  <p><small>각 마일스톤은 실패 테스트 작성 → 최소 구현 → 자동 검증 → 별도 커밋 순서로 진행합니다.</small></p>
+</div>
+
+<div class="section">
+  <div class="label">5. 독립 GitHub 저장소 분리 준비</div>
+  <div class="mockup">
+    <div class="mockup-header">universal_rpa/ 아래에 모든 자산 배치</div>
+    <div class="mockup-body">
+      <div style="display:grid;grid-template-columns:1.3fr 2fr;gap:14px">
+        <div class="placeholder">
+          pyproject.toml<br>
+          README.md · LICENSE<br>
+          .gitignore<br>
+          .github/workflows/<br>
+          src/universal_rpa/<br>
+          tests/ · docs/ · samples/
+        </div>
+        <div class="placeholder">
+          <strong>격리 규칙</strong><br>
+          • 부모 경로 import·상대 참조·공유 설정 없음<br>
+          • 런타임 자산과 테스트 fixture 모두 하위 폴더 안에 존재<br>
+          • workflow schema와 adapter API를 공개 계약으로 문서화<br>
+          • 추후 디렉터리 이력을 repository root로 옮기는 분리 명령 문서화<br>
+          • 분리 후에도 빌드·테스트·Windows 패키징 명령이 그대로 동작
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="options">
+  <div class="option" data-choice="full-design-approved" onclick="toggleSelect(this)">
+    <div class="letter">✓</div>
+    <div class="content">
+      <h3>전체 설계 승인</h3>
+      <p>승인된 내용을 universal_rpa/docs 아래의 설계 명세로 작성하고 커밋합니다.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="full-design-revise" onclick="toggleSelect(this)">
+    <div class="letter">↺</div>
+    <div class="content">
+      <h3>수정 필요</h3>
+      <p>테스트, 완료 기준 또는 마일스톤에서 바꿀 부분을 알려주세요.</p>
+    </div>
+  </div>
+</div>

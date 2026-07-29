@@ -1,0 +1,132 @@
+<h2>오류 처리·보안·실행 보고</h2>
+<p class="subtitle">애매한 상태에서는 계속 진행하지 않는 “fail closed”가 기본 정책입니다.</p>
+
+<div class="section">
+  <div class="label">1. 실행 전 안전 점검</div>
+  <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;text-align:center">
+    <div class="placeholder"><strong>워크플로</strong><br><small>스키마·revision 검증</small></div>
+    <div class="placeholder"><strong>대상 앱</strong><br><small>프로세스·창·selector 확인</small></div>
+    <div class="placeholder"><strong>환경</strong><br><small>DPI·창 크기·모니터 확인</small></div>
+    <div class="placeholder"><strong>입력</strong><br><small>필수 변수·반복 열·비밀 참조</small></div>
+    <div class="placeholder"><strong>출력</strong><br><small>경로·권한·파일 잠금 확인</small></div>
+  </div>
+  <div style="margin-top:10px;background:#fff4df;border:1px solid #d9a441;border-radius:8px;padding:10px">
+    좌표 fallback 단계가 있는데 환경 fingerprint가 다르면 자동 실행하지 않고 <strong>재보정</strong>을 요청합니다.
+  </div>
+</div>
+
+<div class="section">
+  <div class="label">2. 모든 단계의 공통 실행 수명주기</div>
+  <div style="display:grid;grid-template-columns:repeat(9,auto);gap:7px;align-items:center;text-align:center">
+    <div class="placeholder"><strong>대상 찾기</strong><br><small>UIA → 좌표</small></div><div>→</div>
+    <div class="placeholder"><strong>전제조건</strong><br><small>창·포커스·상태</small></div><div>→</div>
+    <div style="background:#e9f8ee;border:2px solid #48a76b;border-radius:8px;padding:12px"><strong>동작 실행</strong></div><div>→</div>
+    <div class="placeholder"><strong>완료조건</strong><br><small>값·요소·데이터</small></div><div>→</div>
+    <div class="placeholder"><strong>ActionResult</strong><br><small>성공·실패·소요시간</small></div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="label">3. 실패 처리 상태도</div>
+  <div class="mockup">
+    <div class="mockup-header">기본값은 중단 — 업무 담당자가 단계별 정책을 명시적으로 변경</div>
+    <div class="mockup-body">
+      <div style="display:grid;grid-template-columns:1.2fr auto 3fr;gap:12px;align-items:center">
+        <div style="background:#fff1f1;border:2px solid #bf5b5b;border-radius:10px;padding:16px;text-align:center">
+          <strong>단계 실패</strong><br>
+          timeout · 대상 없음<br>
+          결과 불일치 · 파일 오류
+        </div>
+        <div style="font-size:28px">→</div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">
+          <div class="placeholder">
+            <strong>1. 안전 재시도</strong><br>
+            idempotent 단계만<br>
+            제한 횟수 + backoff
+          </div>
+          <div class="placeholder">
+            <strong>2. 반복 행 건너뛰기</strong><br>
+            사용자가 허용한 경우만<br>
+            실패 행 별도 보고
+          </div>
+          <div style="background:#fff1f1;border:2px solid #bf5b5b;border-radius:8px;padding:12px">
+            <strong>3. 즉시 중단 — 기본</strong><br>
+            checkpoint 저장<br>
+            재개 버튼 제공
+          </div>
+        </div>
+      </div>
+      <p style="margin-bottom:0"><small>삭제·승인·전송처럼 되돌리기 어려운 동작은 MVP 범위 밖이며 자동 재시도를 허용하지 않습니다.</small></p>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="label">4. 비밀정보와 운영 안전</div>
+  <div class="pros-cons">
+    <div class="pros">
+      <h4>강제 적용</h4>
+      <ul>
+        <li>녹화는 선택한 대상 창에서만 유효</li>
+        <li>암호 필드 입력값은 기록하지 않음</li>
+        <li>Windows Credential Manager 참조만 workflow에 저장</li>
+        <li>구조화 로그에 키 입력 원문·클립보드 본문 미기록</li>
+        <li>실패 스크린샷은 지정 민감 영역을 마스킹</li>
+        <li>전역 비상 중지 단축키는 workflow에 기록하지 않음</li>
+      </ul>
+    </div>
+    <div class="cons">
+      <h4>지원하지 않음</h4>
+      <ul>
+        <li>Windows 잠금·RDP 종료 상태 실행</li>
+        <li>UAC 보안 데스크톱 조작</li>
+        <li>MFA·CAPTCHA 우회</li>
+        <li>JSON에 비밀번호·토큰 평문 저장</li>
+        <li>workflow 안에서 임의 Python·PowerShell 실행</li>
+        <li>검증 없이 좌표 클릭 계속 진행</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="label">5. 비개발자용 실행 결과 화면</div>
+  <div class="mockup">
+    <div class="mockup-header">실행 #20260727-103015 · 월간 실적 추출 · revision 7</div>
+    <div class="mockup-body">
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;text-align:center">
+        <div style="background:#e9f8ee;border-radius:8px;padding:12px"><strong>성공 4</strong><br><small>공장 반복 행</small></div>
+        <div style="background:#fff1f1;border-radius:8px;padding:12px"><strong>실패 1</strong><br><small>F30 조회 timeout</small></div>
+        <div class="placeholder"><strong>추출 12,430행</strong><br><small>필수 헤더 검증 완료</small></div>
+        <div class="placeholder"><strong>출력 파일</strong><br><small>RawDB_생산실적.xlsx</small></div>
+      </div>
+      <div class="placeholder" style="margin-top:10px">
+        <strong>실패 위치:</strong> 반복 3/5 → 단계 6 “표 복사”<br>
+        <strong>원인:</strong> 60초 이내 클립보드 변경 없음<br>
+        <strong>보존 정보:</strong> 마지막 성공 checkpoint · 마스킹된 화면 · 단계 로그
+      </div>
+      <div style="display:flex;gap:10px;margin-top:10px">
+        <button class="mock-button">실패 단계만 다시 테스트</button>
+        <button class="mock-button">F30부터 재개</button>
+        <button class="mock-button">보고서 내보내기</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="options">
+  <div class="option" data-choice="safety-model-approved" onclick="toggleSelect(this)">
+    <div class="letter">✓</div>
+    <div class="content">
+      <h3>이 안전·오류 처리 모델로 진행</h3>
+      <p>마지막 설계 섹션인 테스트·완료 기준·구현 단계로 넘어갑니다.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="safety-model-revise" onclick="toggleSelect(this)">
+    <div class="letter">↺</div>
+    <div class="content">
+      <h3>수정 필요</h3>
+      <p>재시도·중단·보안·보고 방식에서 바꿀 점을 알려주세요.</p>
+    </div>
+  </div>
+</div>

@@ -1,0 +1,93 @@
+<h2>Universal RPA Studio — 아키텍처 초안</h2>
+<p class="subtitle">기존 MIS RPA와 코드·의존성을 공유하지 않는 독립 하위 프로젝트입니다.</p>
+
+<div class="section">
+  <div class="label">프로젝트 경계</div>
+  <div class="mockup">
+    <div class="mockup-header">E:\AI-Elite-MIS_RPA\universal_rpa\</div>
+    <div class="mockup-body">
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;text-align:center">
+        <div class="placeholder"><strong>pyproject.toml</strong><br><small>독립 의존성·빌드</small></div>
+        <div class="placeholder"><strong>src/universal_rpa</strong><br><small>제품 코드</small></div>
+        <div class="placeholder"><strong>tests</strong><br><small>독립 테스트</small></div>
+        <div class="placeholder"><strong>docs / workflows</strong><br><small>문서·사용자 자산</small></div>
+      </div>
+      <p style="margin:14px 0 0;text-align:center">부모 프로젝트 import 없음 · 중첩 .git 없음 · 추후 디렉터리 이력만 별도 GitHub 저장소로 분리</p>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="label">내부 계층</div>
+  <div class="mockup">
+    <div class="mockup-header">한 개의 Windows 데스크톱 앱 — 내부 모듈은 독립</div>
+    <div class="mockup-body">
+      <div style="background:#e8f1ff;border:2px solid #4b78c2;border-radius:10px;padding:14px;text-align:center">
+        <strong>PySide6 Studio UI</strong>
+        <div style="margin-top:8px">프로젝트 홈 · 녹화 · 단계 편집 · 변수/반복 · 테스트 실행 · 결과 보고서</div>
+      </div>
+      <div style="text-align:center;font-size:24px;line-height:34px">↓</div>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px">
+        <div class="placeholder"><strong>Recorder</strong><br><small>입력 이벤트·창·UIA 정보 수집</small></div>
+        <div class="placeholder"><strong>Editor</strong><br><small>라벨·변수·반복·대기 편집</small></div>
+        <div class="placeholder"><strong>Validator</strong><br><small>스키마·환경·위험 동작 검사</small></div>
+        <div class="placeholder"><strong>Runner</strong><br><small>결정론적 실행·재시도·보고</small></div>
+      </div>
+      <div style="text-align:center;font-size:24px;line-height:34px">↓</div>
+      <div style="background:#f5f0ff;border:2px solid #8264c7;border-radius:10px;padding:14px;text-align:center">
+        <strong>Workflow Core v1</strong>
+        <div style="margin-top:8px">Step · Action · Target · Variable · Loop · Wait Condition · Assertion · ActionResult</div>
+        <small>JSON은 내부 저장 형식이며 일반 사용자는 직접 편집하지 않습니다.</small>
+      </div>
+      <div style="text-align:center;font-size:24px;line-height:34px">↓</div>
+      <div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:10px">
+        <div style="background:#e8f7ee;border:2px solid #44a36b;border-radius:10px;padding:13px">
+          <strong>A — MVP에서 구현</strong>
+          <p style="margin:7px 0 0">Windows UIA + 창 상대좌표 · 키보드/마우스 · 클립보드 · Excel/CSV · Windows 자격 증명 저장소</p>
+        </div>
+        <div style="background:#f3f4f6;border:2px dashed #8a9099;border-radius:10px;padding:13px">
+          <strong>B — 포트만 정의</strong>
+          <p style="margin:7px 0 0">Web / Playwright</p>
+        </div>
+        <div style="background:#f3f4f6;border:2px dashed #8a9099;border-radius:10px;padding:13px">
+          <strong>C — 포트만 정의</strong>
+          <p style="margin:7px 0 0">파일 · API · 메일</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <div class="label">비개발자 사용 흐름</div>
+  <div style="display:grid;grid-template-columns:repeat(7,auto);gap:8px;align-items:center;text-align:center">
+    <div class="placeholder"><strong>1</strong><br>새 업무</div><div>→</div>
+    <div class="placeholder"><strong>2</strong><br>대상 창 선택</div><div>→</div>
+    <div class="placeholder"><strong>3</strong><br>업무 녹화</div><div>→</div>
+    <div class="placeholder"><strong>4</strong><br>단계 라벨링</div>
+  </div>
+  <div style="text-align:center;font-size:22px;line-height:30px">↓</div>
+  <div style="display:grid;grid-template-columns:repeat(7,auto);gap:8px;align-items:center;text-align:center">
+    <div class="placeholder"><strong>8</strong><br>결과 확인</div><div>←</div>
+    <div class="placeholder"><strong>7</strong><br>전체 실행</div><div>←</div>
+    <div class="placeholder"><strong>6</strong><br>단계별 테스트</div><div>←</div>
+    <div class="placeholder"><strong>5</strong><br>변수·반복 설정</div>
+  </div>
+</div>
+
+<div class="options">
+  <div class="option" data-choice="architecture-approved" onclick="toggleSelect(this)">
+    <div class="letter">✓</div>
+    <div class="content">
+      <h3>이 구조로 진행</h3>
+      <p>다음 설계 섹션인 녹화·편집 데이터 흐름으로 넘어갑니다.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="architecture-revise" onclick="toggleSelect(this)">
+    <div class="letter">↺</div>
+    <div class="content">
+      <h3>수정 필요</h3>
+      <p>터미널에 바꾸고 싶은 부분을 적어주세요.</p>
+    </div>
+  </div>
+</div>
