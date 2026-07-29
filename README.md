@@ -16,10 +16,35 @@ BEMS 웹앱(`AI-Elite_Energy-Dashboard-Web`)에서 분리된 독립 프로젝트
 ```
 
 - **접점은 `DB_MIS_DIR` 폴더의 엑셀 파일뿐.** RPA는 DB에 직접 쓰지 않습니다.
-- 에너지: RPA가 `RawDB_에너지.xlsx` 생성 → 웹이 startup에 직접 읽어 적재.
+- 에너지: RPA가 `RawDB_에너지.xlsx` 수집 → `energy_builder.build_dataset` 재가공 →
+  `DB_에너지.xlsx` → 웹이 startup에 적재.
 - 생산실적: RPA가 `RawDB_생산실적.xlsx` 수집 → `production_builder.build_dataset` 재가공 →
   `DB_생산실적.xlsx` → 웹이 startup에 적재.
 - 재공품: RPA가 `RawDB_재공품.xlsx` 수집 → `wip_refactoring` 재가공 → `DB_재공품.xlsx`.
+
+### 에너지 수집 화면 변경 (2026-07)
+
+주수집 화면이 `유틸리티 일자별 사용량 추이` → `원단위 실적입력(일단위)` 로 바뀌었습니다.
+신규 화면은 **단가·비용·COD** 를 함께 제공하지만 **믹스생산량·원단위가 없어** 구 화면을
+보완용으로 병행 수집합니다.
+
+```
+[원단위 실적입력(일단위)]  냉동전력·공압기·전력량·전력비·전력단가·연료량·연료비·
+                           연료단가·용수량·폐수량·원수COD·배출수COD      ─┐
+                                                                            ├─► RawDB_에너지.xlsx
+[유틸리티 일자별 사용량 추이]  믹스생산량·전력/연료/용수 원단위           ─┘    (행=일자, 열=항목)
+                                                                                     │ energy_builder
+                                                                                     ▼
+                                                                              DB_에너지.xlsx
+                                                                            (행=항목, 열=날짜)
+```
+
+- 화면 변경 전 `RawDB_에너지.xlsx` 가 맡던 **전치형(행=항목) 역할은 `DB_에너지.xlsx` 로 이관**
+  됩니다. 첫 실행 시 `energy_builder.migrate_legacy_rawdb()` 가 자동으로 1회 복사하고
+  구 파일은 `backup/RawDB_에너지_legacy_*.xlsx` 로 보관합니다.
+- 이관 후 **웹앱 `.env` 의 `ENERGY_SOURCE_XLSX` 를 `DB_에너지.xlsx` 로 지정**해야 합니다.
+- 신규 화면은 조회 전용이 아닌 **실적입력** 화면입니다. 좌표가 어긋나면 그리드에 값이
+  입력될 수 있으므로, `utility_coords.json` 수정 후에는 반드시 `--dry-run` 으로 검증하세요.
 
 ## 구조
 
@@ -29,12 +54,14 @@ AI-Elite_AI-Elite-MIS_RPA/
 │   ├── config.py               # DB_MIS_DIR 경로 해석 (.env)
 │   ├── factories.py            # 공장 코드/도메인 상수
 │   ├── production_builder.py   # RawDB_생산실적 → DB_생산실적 재가공 (build_dataset 등)
+│   ├── energy_builder.py       # RawDB_에너지 → DB_에너지 재가공 + 에너지 항목 스키마
 │   ├── wip_refactoring.py      # RawDB_재공품 → DB_재공품 재가공
 │   ├── _common.py              # 클립보드/윈도우/atomic-save 공통 헬퍼
 │   ├── production_daily_rpa.py # 생산실적 수집 RPA
-│   ├── utility_daily_rpa.py    # 유틸리티(에너지) 수집 RPA
+│   ├── utility_daily_rpa.py    # 유틸리티(에너지) 수집 RPA — 2개 화면 병행 수집
 │   ├── wip_daily_rpa.py        # 재공품 수집 RPA
 │   ├── build_production_dataset.py  # 생산실적 재가공 CLI
+│   ├── build_energy_dataset.py      # 에너지 재가공 CLI
 │   ├── run_all_rpa.py          # 3종 RPA 오케스트레이터
 │   ├── *_coords.json           # MIS 화면 좌표
 │   └── *.bat                   # 실행 래퍼
@@ -60,7 +87,13 @@ AI-Elite-MIS_RPA\전체_RPA_자동실행.bat
 
 REM 개별 실행
 python AI-Elite-MIS_RPA\run_all_rpa.py --date 2026-06-30
-python AI-Elite-MIS_RPA\build_production_dataset.py      # 재가공만
+python AI-Elite-MIS_RPA\build_production_dataset.py      # 생산실적 재가공만
+python AI-Elite-MIS_RPA\build_energy_dataset.py          # 에너지 재가공만
+
+REM 에너지 단독 실행
+python AI-Elite-MIS_RPA\utility_daily_rpa.py --ym 2026-07
+python AI-Elite-MIS_RPA\utility_daily_rpa.py --dry-run    # MIS 조회만, 엑셀 미기록
+python AI-Elite-MIS_RPA\utility_daily_rpa.py --skip-trend # 구 화면(믹스/원단위) 생략
 ```
 
 > **주의**: RPA 실행 중에는 화면 잠금/화면보호기/모니터 절전/RDP 세션 끊김이 없어야 합니다
