@@ -1,9 +1,9 @@
 # 에너지 수집·재가공 파이프라인 검증 (MIS 화면 변경 2026-07 대응).
 #
 # MIS/E: 드라이브 없이 임시 fixture 로
-#   utility_daily_rpa.parse_unit_input_clipboard  (신규 화면 클립보드 파싱)
-#   utility_daily_rpa.parse_usage_trend_clipboard (구 화면 보완 파싱)
-#   energy_builder.write_raw / read_raw / build_dataset / migrate_legacy_rawdb
+#   utility_daily_rpa.parse_unit_input_clipboard  ('원단위 실적입력' 클립보드 파싱)
+#   utility_daily_rpa.resolve_org_codes           (--factories 해석)
+#   energy_builder.write_raw / read_raw            (RawDB_에너지 적재·읽기)
 # 를 검증한다.
 #
 # 실행: python tests/test_energy_builder.py
@@ -14,7 +14,7 @@ import tempfile
 from datetime import date
 from pathlib import Path
 
-from openpyxl import Workbook, load_workbook
+from openpyxl import load_workbook
 
 try:
     sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
@@ -61,24 +61,6 @@ def _unit_input_clipboard(swap_cost_price: bool = False) -> str:
     return "\n".join(",".join(c for c in row) for row in rows)
 
 
-def _usage_trend_clipboard() -> str:
-    """구 화면 클립보드(행=항목, 열=일자) 텍스트를 재현한다."""
-    header = ["", "01일", "02일", "03일"]
-    rows = [
-        ["냉동전력량", "9393", "8984", "9252"],
-        ["공압기", "2435", "2458", "2815"],
-        ["전력량", "35136", "34128", "34740"],
-        ["연료량", "2614", "2435", "2340"],
-        ["용수량", "652", "610", "674"],
-        ["폐수량", "505", "484", "534"],
-        ["믹스생산량", "362122", "61586", "31795"],
-        ["전력원단위", "97.03", "554.14", "1092.62"],
-        ["연료원단위", "7.219", "39.538", "73.596"],
-        ["용수원단위", "1.8", "9.905", "21.198"],
-    ]
-    return "\n".join("\t".join(r) for r in [header] + rows)
-
-
 def test_parse_unit_input() -> None:
     parsed = rpa.parse_unit_input_clipboard(_unit_input_clipboard(), "2026-07")
 
@@ -114,104 +96,260 @@ def test_cost_price_autodetect() -> None:
     print("  ✓ 비용/단가 열 자동 판별 — 순서가 뒤바뀌어도 교정")
 
 
-def test_parse_usage_trend() -> None:
-    parsed = rpa.parse_usage_trend_clipboard(_usage_trend_clipboard(), "2026-07")
-    day1 = parsed[date(2026, 7, 1)]
-    assert set(day1) == {"mix_prod_kg", "power_per_ton_kwh",
-                         "fuel_per_ton_nm3", "water_per_ton_ton"}, day1
-    assert day1["mix_prod_kg"] == 362122
-    assert day1["power_per_ton_kwh"] == 97.03
-    print("  ✓ 구 화면 파싱 — 믹스생산량·원단위만 추출")
-
-
-def _legacy_workbook(path: Path) -> None:
-    """구 형식 RawDB_에너지(행=항목, 열=날짜) fixture 를 만든다."""
-    wb = Workbook()
-    wb.remove(wb.active)
-    for sheet_name in ("남양주1", "김해"):
-        ws = wb.create_sheet(sheet_name)
-        ws.cell(row=1, column=1, value="날짜")
-        for offset, field in enumerate(eb.FIELDS[:10]):     # 구 파일은 10개 항목뿐
-            ws.cell(row=2 + offset, column=1, value=field.label)
-        ws.cell(row=1, column=2, value=date(2026, 6, 30))
-        for offset in range(10):
-            ws.cell(row=2 + offset, column=2, value=offset + 1)
-    wb.save(path)
-
-
-def test_migrate_and_build() -> None:
+def test_write_and_read_raw() -> None:
+    """적재/재읽기 + legacy 항목(믹스·원단위) 과거 값 보존."""
     with tempfile.TemporaryDirectory() as tmp:
-        tmp_dir = Path(tmp)
-        raw_path = tmp_dir / "RawDB_에너지.xlsx"
-        db_path = tmp_dir / "DB_에너지.xlsx"
+        raw_path = Path(tmp) / "RawDB_에너지.xlsx"
 
-        # ── 1. 구 형식 이관 ──
-        _legacy_workbook(raw_path)
-        assert eb.is_legacy_transposed(raw_path)
-        assert eb.migrate_legacy_rawdb(raw_path, db_path) is True
-        assert db_path.exists(), "DB_에너지.xlsx 가 생성되지 않음"
-        assert not raw_path.exists(), "구 RawDB 가 backup 으로 이동되지 않음"
-        assert list((tmp_dir / "backup").glob("RawDB_에너지_legacy_*.xlsx")), "백업 없음"
-        assert eb.migrate_legacy_rawdb(raw_path, db_path) is False, "이관은 1회만"
-        print("  ✓ 구 형식 이관 — RawDB(전치형) → DB_에너지, 원본은 backup/ 보관")
+        # 구 화면으로 수집해 둔 과거 값 — 6/30 행에 믹스/원단위가 들어있는 상태
+        eb.write_raw({"남양주1": {date(2026, 6, 30): {
+            "total_power_kwh": 30000, "mix_prod_kg": 111111,
+            "power_per_ton_kwh": 270.0, "fuel_per_ton_nm3": 20.0,
+            "water_per_ton_ton": 5.0,
+        }}}, raw_path)
 
-        # ── 2. RawDB 적재 ──
-        records = rpa.parse_unit_input_clipboard(_unit_input_clipboard(), "2026-07")
-        trend = rpa.parse_usage_trend_clipboard(_usage_trend_clipboard(), "2026-07")
-        collected = {"남양주1": records}
-        rpa.MISUtilityRPA._merge(collected, {"남양주1": trend})
+        # 신규 수집 — unit_input 항목만
+        collected = {"남양주1": rpa.parse_unit_input_clipboard(
+            _unit_input_clipboard(), "2026-07")}
         eb.write_raw(collected, raw_path)
 
         round_tripped = eb.read_raw(raw_path)
         assert set(round_tripped) == {"남양주1"}
-        day1 = round_tripped["남양주1"][date(2026, 7, 1)]
+        by_date = round_tripped["남양주1"]
+        assert set(by_date) == {date(2026, 6, 30), date(2026, 7, 1),
+                                date(2026, 7, 2), date(2026, 7, 3)}, sorted(by_date)
+
+        day1 = by_date[date(2026, 7, 1)]
         assert day1["power_cost_krw"] == 6823950.9
-        assert day1["mix_prod_kg"] == 362122
-        assert len(day1) == len(eb.RAW_COLUMN_KEYS), f"항목 누락: {sorted(day1)}"
-        print("  ✓ RawDB 적재/재읽기 — 16개 항목 왕복 일치")
+        assert day1["power_price_krw_kwh"] == 194.22
+        unit_input_keys = {f.key for f in eb.FIELDS if f.source == "unit_input"}
+        assert set(day1) == unit_input_keys, f"수집 항목 불일치: {sorted(day1)}"
+        assert "mix_prod_kg" not in day1, "legacy 항목이 신규 날짜에 채워짐"
+
+        # 과거 legacy 값은 그대로 살아 있어야 한다
+        old = by_date[date(2026, 6, 30)]
+        assert old["mix_prod_kg"] == 111111, "과거 믹스생산량이 지워짐"
+        assert old["power_per_ton_kwh"] == 270.0
+        print(f"  ✓ 적재/재읽기 — {len(unit_input_keys)}개 수집 항목 왕복, "
+              f"legacy 과거 값 보존")
 
         # 같은 데이터 재적재 시 행이 늘지 않아야 한다 (upsert)
         eb.write_raw(collected, raw_path)
         wb = load_workbook(raw_path)
-        assert wb["남양주1"].max_row == 1 + 3, wb["남양주1"].max_row
+        assert wb["남양주1"].max_row == 1 + 4, wb["남양주1"].max_row
         wb.close()
-        print("  ✓ RawDB upsert — 재실행해도 행 중복 없음")
+        print("  ✓ upsert — 재실행해도 행 중복 없음")
 
-        # ── 3. DB 재가공 ──
-        stats, out = eb.build_dataset(raw_path, db_path)
-        assert stats["남양주1"]["appended"] == 3, stats
-        wb = load_workbook(db_path)
-        ws = wb["남양주1"]
 
-        labels = [ws.cell(row=2 + i, column=1).value for i in range(len(eb.FIELDS))]
-        assert labels == [f.label for f in eb.FIELDS], labels
+def test_bems_can_parse_raw() -> None:
+    """BEMS 파서가 RawDB 를 **전치 분기 없이** 읽을 수 있어야 한다.
 
-        # 이관된 과거 열(6/30)은 그대로 남아 있어야 한다
-        assert ws.cell(row=1, column=2).value.date() == date(2026, 6, 30)
-        assert ws.cell(row=2, column=2).value == 1
+    BEMS `_parse_korean_excel` 은 A열에 항목명이 있으면 전치형으로 간주해 행 필터
+    (`metric_mask`)를 적용한다. tidy 형태(A열=날짜)에서는 그 분기를 타지 않아야
+    하며, 머리글이 한글 부분매칭 맵에 걸려 필수 컬럼이 모두 잡혀야 한다.
+    이 조건이 깨지면 웹앱이 조용히 빈 데이터를 적재한다.
+    """
+    import pandas as pd
 
-        # 신규 열(7/1) — 구 항목 + 신규 항목이 모두 채워졌는지
-        assert ws.cell(row=1, column=3).value.date() == date(2026, 7, 1)
-        by_label = {ws.cell(row=2 + i, column=1).value: ws.cell(row=2 + i, column=3).value
-                    for i in range(len(eb.FIELDS))}
-        assert by_label["전력량[kWh]"] == 35136
-        assert by_label["믹스생산량[kg]"] == 362122
-        assert by_label["전력비[원]"] == 6823950.9
-        assert by_label["전력단가[원/kWh]"] == 194.22
-        assert by_label["배출수COD[ppm]"] == 10
-        wb.close()
-        print("  ✓ DB 재가공 — 과거 열 보존 + 신규 항목행(12~17) 추가")
+    # BEMS daily_energy_sync_service._KOR_SUBSTR_MAP / EXPECTED_COLUMNS 사본
+    kor_substr_map = {
+        "날짜": "date", "일자": "date",
+        "냉동전력량": "freezing_power_kwh", "공압기": "air_compressor_kwh",
+        "공업기": "air_compressor_kwh", "공기압축기": "air_compressor_kwh",
+        "전력량": "total_power_kwh", "연료량": "fuel_nm3",
+        "용수량": "water_ton", "폐수량": "wastewater_ton",
+        "mix생산량": "mix_prod_kg", "믹스생산량": "mix_prod_kg",
+        "전력원단위": "power_per_ton_kwh", "전력단위": "power_per_ton_kwh",
+        "연료원단위": "fuel_per_ton_nm3", "연료단위": "fuel_per_ton_nm3",
+        "용수원단위": "water_per_ton_ton", "용수단위": "water_per_ton_ton",
+    }
+    expected = ["date", "freezing_power_kwh", "air_compressor_kwh",
+                "total_power_kwh", "fuel_nm3", "water_ton", "wastewater_ton",
+                "mix_prod_kg", "power_per_ton_kwh", "fuel_per_ton_nm3",
+                "water_per_ton_ton"]
 
-        # ── 4. 재빌드 idempotent ──
-        stats2, _ = eb.build_dataset(raw_path, db_path)
-        assert stats2["남양주1"] == {"appended": 0, "overwritten": 3}, stats2
-        print("  ✓ DB 재빌드 — 같은 날짜는 덮어쓰기(열 증가 없음)")
+    with tempfile.TemporaryDirectory() as tmp:
+        raw_path = Path(tmp) / "RawDB_에너지.xlsx"
+        eb.write_raw({"남양주1": rpa.parse_unit_input_clipboard(
+            _unit_input_clipboard(), "2026-07")}, raw_path)
+
+        df = pd.read_excel(raw_path, sheet_name="남양주1", engine="openpyxl")
+
+        first_col = [str(v).replace(" ", "") for v in df.iloc[:, 0].dropna().values]
+        is_transposed = any("냉동전력량" in v or "전력량" in v for v in first_col)
+        assert not is_transposed, "A열이 항목명으로 인식됨 → 전치 분기를 타 행 필터가 적용된다"
+
+        mapped, unmapped = [], []
+        for col in df.columns:
+            key = str(col).strip().lower().replace(" ", "")
+            hit = next((v for k, v in kor_substr_map.items() if k in key), None)
+            (mapped if hit else unmapped).append(hit or str(col).strip())
+
+        missing = [c for c in expected if c not in mapped]
+        assert not missing, f"BEMS 필수 컬럼 누락 → validate_columns 실패: {missing}"
+        dup = {c for c in mapped if mapped.count(c) > 1}
+        assert not dup, f"두 머리글이 같은 컬럼으로 매핑됨: {dup}"
+
+        # 신규 6개 항목은 아직 BEMS 맵에 없어 무시된다 (적재 작업 시 맵 확장 필요)
+        new_labels = {f.label for f in eb.FIELDS
+                      if f.key in ("power_cost_krw", "power_price_krw_kwh",
+                                   "fuel_cost_krw", "fuel_price_krw_nm3",
+                                   "influent_cod_ppm", "effluent_cod_ppm")}
+        assert new_labels <= set(unmapped), \
+            f"신규 항목 매핑 상태 변화: unmapped={unmapped}"
+        print("  ✓ BEMS 파서 호환 — tidy 형태로 전치 분기 없이 필수 컬럼 전부 인식")
+
+
+class _FakeWindow:
+    def set_focus(self):
+        pass
+
+
+class _StubRPA(rpa.MISUtilityRPA):
+    """MIS 없이 collect_months 흐름만 검증하기 위한 스텁.
+
+    화면 조작은 전부 no-op 이고, copy_grid_data 가 (년월, 공장)별 준비된
+    클립보드 텍스트를 돌려준다.
+    """
+
+    def __init__(self, clipboards: dict, **kwargs):
+        super().__init__(**kwargs)
+        self.clipboards = clipboards
+        self.main_window = _FakeWindow()
+        self.visited: list[tuple[str, str]] = []
+        self._current_ym = None
+        self._current_org = None
+
+    def navigate_to_screen(self, screen):
+        pass
+
+    def set_year_month(self, screen, year_month=None):
+        self._current_ym = year_month or self.year_month
+
+    def select_factory(self, screen, org_code):
+        self._current_org = org_code
+
+    def click_query(self, screen):
+        pass
+
+    def copy_grid_data(self, screen):
+        key = (self._current_ym, self._current_org)
+        self.visited.append(key)
+        return self.clipboards.get(key, "")
+
+
+def _month_clipboard(day_count: int, base: int) -> str:
+    """day_count 일치 가짜 그리드. base 로 공장/월별 값을 구분한다."""
+    rows = [[""] * (13 + _TRAILING_BLANKS)]
+    for day in range(1, day_count + 1):
+        usage = base + day
+        price = 200.0
+        rows.append(_cells([day, base, base, usage, round(usage * price, 2), price,
+                            usage, round(usage * 900.0, 2), 900.0,
+                            base, base, base, base]))
+    return "\n".join(",".join(row) for row in rows)
+
+
+def test_collect_months() -> None:
+    """과거 월 백필 — 여러 달 순회, 월 단위 체크포인트, 실적 없는 달 처리."""
+    clipboards = {
+        ("2026-05", "F1A"): _month_clipboard(31, 100),
+        ("2026-05", "F1B"): _month_clipboard(31, 200),
+        ("2026-06", "F1A"): _month_clipboard(30, 300),
+        # ("2026-06", "F1B") 없음 → 빈 클립보드 → 스킵
+        ("2026-07", "F1A"): "\n".join([",".join([""] * 18),
+                                       ",".join(["TOTAL"] + [" "] * 17)]),
+        ("2026-07", "F1B"): _month_clipboard(28, 400),
+    }
+    stub = _StubRPA(clipboards, year_month="2026-07", dry_run=True,
+                    org_codes=["F1A", "F1B"])
+
+    checkpoints: list[tuple[str, int]] = []
+    records = stub.collect_months(
+        rpa.SCREEN_UNIT_INPUT, rpa.parse_unit_input_clipboard,
+        ["2026-05", "2026-06", "2026-07"],
+        on_month_done=lambda ym, rec: checkpoints.append(
+            (ym, sum(len(v) for v in rec.values()))),
+    )
+
+    # 지정한 2개 사업장 × 3개월 = 6회만 순회 (org_codes 필터 동작)
+    assert len(stub.visited) == 6, stub.visited
+    assert {c for _, c in stub.visited} == {"F1A", "F1B"}
+
+    # 월 단위 체크포인트가 매달 호출됐는지 (2026-06 은 F1A 30일만)
+    assert checkpoints == [("2026-05", 62), ("2026-06", 30), ("2026-07", 28)], checkpoints
+
+    # 여러 달이 사업장별로 병합됐는지
+    assert records["남양주1"] and records["남양주2"]
+    assert len(records["남양주1"]) == 31 + 30, len(records["남양주1"])   # 5월+6월
+    assert len(records["남양주2"]) == 31 + 28, len(records["남양주2"])   # 5월+7월
+    assert min(records["남양주1"]) == date(2026, 5, 1)
+    assert max(records["남양주1"]) == date(2026, 6, 30)
+
+    # 실적 없는 달(2026-07 F1A)이 예외로 중단되지 않고 스킵됐는지
+    assert not any(d.month == 7 for d in records["남양주1"]), "빈 그리드가 적재됨"
+    print("  ✓ 과거 월 백필 — 다중 월 순회·체크포인트·실적 없는 달 스킵")
+
+
+def test_resolve_org_codes() -> None:
+    """--factories 는 코드/공장명을 모두 받고, 오타는 조용히 통과하지 않아야 한다."""
+    assert rpa.resolve_org_codes("논산,경산") == ["F40", "F50"]
+    assert rpa.resolve_org_codes("F40,F50") == ["F40", "F50"]
+    assert rpa.resolve_org_codes("경산, 논산") == ["F40", "F50"]   # 순서 정규화
+    assert rpa.resolve_org_codes("f40") == ["F40"]                  # 대소문자 무시
+    assert rpa.resolve_org_codes("논산,F40") == ["F40"]             # 중복 제거
+    assert rpa.resolve_org_codes(None) == list(rpa.FACTORY_SHEET_MAP)
+
+    for bad in ("논산공장", "F99", "F4O", ","):
+        try:
+            rpa.resolve_org_codes(bad)
+        except SystemExit:
+            continue
+        raise AssertionError(f"거부되지 않음: {bad!r}")
+    print("  ✓ --factories 해석 — 코드/공장명 혼용, 오타 즉시 거부")
+
+
+def test_duplicate_grid_guard() -> None:
+    """좌표가 어긋나 직전 공장 그리드를 재복사하면 적재를 거부해야 한다.
+
+    2026-07-30 dry-run 에서 김해(y=200)와 논산(y=214)이 13개 항목·29일 전부
+    동일한 그리드를 뽑았는데 값만 봐서는 알아채기 어려웠던 사례에 대한 회귀 테스트.
+    """
+    same = _month_clipboard(29, 500)
+    stub = _StubRPA(
+        {("2026-07", "F20"): same,          # 김해
+         ("2026-07", "F30"): _month_clipboard(29, 600),
+         ("2026-07", "F40"): same,          # 논산 — 김해 그리드 재복사
+         ("2026-07", "F50"): _month_clipboard(29, 700)},
+        year_month="2026-07", dry_run=True,
+        org_codes=["F20", "F30", "F40", "F50"],
+    )
+    records = stub.collect_screen(rpa.SCREEN_UNIT_INPUT,
+                                 rpa.parse_unit_input_clipboard)
+
+    assert set(records) == {"김해", "광주", "경산"}, sorted(records)
+    assert "논산" not in records, "중복 그리드가 적재됨"
+    assert stub.duplicate_grids == [
+        (rpa.SCREEN_UNIT_INPUT, "2026-07", "논산", "김해")
+    ], stub.duplicate_grids
+    assert stub.report_duplicate_grids() is True
+
+    # 정상 케이스에서는 오탐이 없어야 한다
+    ok = _StubRPA({("2026-07", "F20"): _month_clipboard(29, 500),
+                   ("2026-07", "F40"): _month_clipboard(29, 600)},
+                  year_month="2026-07", dry_run=True, org_codes=["F20", "F40"])
+    ok.collect_screen(rpa.SCREEN_UNIT_INPUT, rpa.parse_unit_input_clipboard)
+    assert ok.duplicate_grids == [], ok.duplicate_grids
+    assert ok.report_duplicate_grids() is False
+    print("  ✓ 중복 그리드 차단 — 공장 선택 실패 시 적재 거부 + 오탐 없음")
 
 
 def main() -> int:
     print("에너지 파이프라인 검증")
     for fn in (test_parse_unit_input, test_cost_price_autodetect,
-               test_parse_usage_trend, test_migrate_and_build):
+               test_write_and_read_raw, test_bems_can_parse_raw,
+               test_collect_months, test_resolve_org_codes,
+               test_duplicate_grid_guard):
         fn()
     print("\n전체 통과")
     return 0

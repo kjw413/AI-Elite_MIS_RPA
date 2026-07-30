@@ -1,32 +1,40 @@
 # MIS 에너지(유틸리티) 일일 실적 자동 샘플링 RPA (pywinauto + openpyxl 기반)
 """
 사내 MIS '(신)종합정보' 시스템에서 에너지 일일 실적을 사업장별로 자동 조회 →
-클립보드 복사 → RawDB_에너지.xlsx 적재 → DB_에너지.xlsx 재가공하는 RPA 프로그램.
+클립보드 복사 → RawDB_에너지.xlsx 적재하는 RPA 프로그램. 재가공 단계는 없고,
+이 파일을 BEMS 웹앱이 그대로 읽는다.
 
-== 2026-07 화면 변경 ==
-주수집 화면이 '유틸리티 일자별 사용량 추이' → '원단위 실적입력(일단위)' 로 바뀌었다.
-신규 화면은 단가·비용·COD 를 함께 제공하지만 믹스생산량·원단위가 없어, 구 화면을
-보완용으로 병행 수집한다.
+== 수집 화면 ==
+'원단위 실적입력(일단위)' [unit_input] 한 화면만 사용한다 — 행=일자, 열=항목.
 
-  화면 1) 원단위 실적입력(일단위)      [unit_input]  — 행=일자, 열=항목
-          일자 | 냉동전력 | 공압기 | 전력사용량 | 전력비 | 전력단가 |
-                 연료사용량 | 연료비 | 연료단가 | 용수사용량 | 폐수발생량 |
-                 원수COD | 배출수COD
-  화면 2) 유틸리티 일자별 사용량 추이  [usage_trend] — 행=항목, 열=일자
-          믹스생산량 / 전력·연료·용수 원단위 만 취한다
+  일자 | 냉동전력 | 공압기 | 전력사용량 | 전력비 | 전력단가 |
+         연료사용량 | 연료비 | 연료단가 | 용수사용량 | 폐수발생량 |
+         원수COD | 배출수COD
+
+2026-07 이전에는 '유틸리티 일자별 사용량 추이' 화면을 쓰다가 이 화면으로 옮겼고,
+신규 화면에 없는 믹스생산량·원단위를 구 화면에서 보완 수집했다. 그 보완 수집은
+제거했다 — BEMS 웹앱이 이미 생산량 분모를 `production_daily.actual_qty`(생산실적
+RPA 산출물)로 쓰고 화면·메일·분석의 원단위를 매 조회마다 재계산하기 때문에
+(`production_actual_service.overlay_actual_production`), MIS 에서 믹스생산량·원단위를
+받아올 필요가 없다. 해당 4개 열은 과거 값 보존용으로 남겨 두며 신규 날짜에는 비어 있다.
 
 업무 절차:
   1. MIS 앱 연결 (pywinauto UIA backend)
-  2. 화면 1 진입 → 기준년월 설정 → 사업장 순회(F1A→F1B→F20→F30→F40→F50)
+  2. 화면 진입 → 기준년월 설정 → 사업장 순회(F1A→F1B→F20→F30→F40→F50)
      조회 → 그리드 복사 → 클립보드 파싱
-  3. 화면 2 진입 → 동일 순회 → 믹스생산량·원단위 보완 수집
-  4. RawDB_에너지.xlsx 적재 (행=일자) → DB_에너지.xlsx 재가공 (행=항목, 열=날짜)
+  3. RawDB_에너지.xlsx 적재 (행=일자, 열=항목)
+
+일일 수집과 과거 데이터 수집은 화면·파싱·적재 경로가 완전히 같고 도는 달 수만 다르다.
+여러 달을 돌 때는 매달 수집 직후 적재하므로(월 단위 체크포인트) 중단돼도 앞선 달은 남는다.
 
 Usage:
-  python utility_daily_rpa.py                # 기본: D-1 기준월
-  python utility_daily_rpa.py --ym 2026-07   # 특정 월 지정
-  python utility_daily_rpa.py --dry-run      # MIS 조회만, 엑셀 미기록
-  python utility_daily_rpa.py --skip-trend   # 구 화면(믹스/원단위) 수집 생략
+  python utility_daily_rpa.py                          # 기본: D-1 기준월
+  python utility_daily_rpa.py --ym 2026-07             # 특정 월 1개
+  python utility_daily_rpa.py --dry-run                # MIS 조회만, 엑셀 미기록
+  python utility_daily_rpa.py --factories 논산,경산       # 특정 사업장만
+  python utility_daily_rpa.py --from 2024-01           # 과거 수집: ~ D-1 월까지
+  python utility_daily_rpa.py --from 2024-01 --to 2026-06
+  python utility_daily_rpa.py --from 2024-01 --resume  # 이미 받은 달은 건너뜀
 """
 
 import sys
@@ -34,6 +42,7 @@ import time
 import os
 import json
 import shutil
+import hashlib
 import logging
 import argparse
 import re
@@ -72,7 +81,7 @@ LOG_DIR.mkdir(exist_ok=True)
 log = logging.getLogger(__name__)
 
 
-def _setup_logging() -> None:
+def _setup_logging(prefix: str = "rpa") -> None:
     if logging.getLogger().handlers:
         return
     logging.basicConfig(
@@ -81,7 +90,7 @@ def _setup_logging() -> None:
         handlers=[
             logging.StreamHandler(sys.stdout),
             logging.FileHandler(
-                LOG_DIR / f"rpa_{datetime.now():%Y%m%d_%H%M%S}.log",
+                LOG_DIR / f"{prefix}_{datetime.now():%Y%m%d_%H%M%S}.log",
                 encoding="utf-8",
             ),
         ],
@@ -100,11 +109,142 @@ FACTORY_SHEET_MAP = OrderedDict([
     ("F50", "경산"),
 ])
 
+
+def resolve_org_codes(spec: str | None) -> list[str]:
+    """`--factories` 값을 사업장 코드 리스트로 변환한다.
+
+    코드(F40)와 한글 공장명(논산)을 모두 받는다. 코드만 받으면 오타가
+    조용히 다른 공장을 수집하게 되므로 알 수 없는 값은 즉시 중단한다.
+
+    >>> resolve_org_codes("논산,F50")
+    ['F40', 'F50']
+    """
+    if not spec:
+        return list(FACTORY_SHEET_MAP)
+
+    by_name = {name: code for code, name in FACTORY_SHEET_MAP.items()}
+    selected: set[str] = set()
+    unknown: list[str] = []
+    for token in spec.split(","):
+        token = token.strip()
+        if not token:
+            continue
+        if token.upper() in FACTORY_SHEET_MAP:
+            selected.add(token.upper())
+        elif token in by_name:
+            selected.add(by_name[token])
+        else:
+            unknown.append(token)
+
+    if unknown:
+        raise SystemExit(
+            f"알 수 없는 사업장: {unknown}\n"
+            f"  코드 또는 공장명을 쓰세요 — "
+            + ", ".join(f"{c}={n}" for c, n in FACTORY_SHEET_MAP.items())
+        )
+    if not selected:
+        raise SystemExit("--factories 에 사업장이 하나도 지정되지 않았습니다.")
+
+    # FACTORY_SHEET_MAP 순서 유지 (입력 순서와 무관하게 항상 동일한 순회 순서)
+    return [code for code in FACTORY_SHEET_MAP if code in selected]
+
+
+# ---------------------------------------------------------------------------
+# 기준년월 범위 (과거 데이터 수집)
+# ---------------------------------------------------------------------------
+# 공장 1곳 1개월 조회+복사에 걸리는 대략적 소요 (진행 예상시간 안내용)
+_SECONDS_PER_QUERY = 3.0
+
+
+def _parse_ym(text: str) -> tuple[int, int]:
+    try:
+        year, month = text.strip().split("-")
+        year, month = int(year), int(month)
+        if not 1 <= month <= 12:
+            raise ValueError
+        return year, month
+    except ValueError:
+        raise SystemExit(f"기준년월 형식이 잘못됐습니다: '{text}' (예: 2024-01)")
+
+
+def month_range(start: str, end: str) -> list[str]:
+    """'2024-01' ~ '2024-03' → ['2024-01', '2024-02', '2024-03']"""
+    y0, m0 = _parse_ym(start)
+    y1, m1 = _parse_ym(end)
+    if (y0, m0) > (y1, m1):
+        raise SystemExit(f"--from({start}) 이 --to({end}) 보다 늦습니다.")
+    out = []
+    year, month = y0, m0
+    while (year, month) <= (y1, m1):
+        out.append(f"{year:04d}-{month:02d}")
+        year, month = (year + 1, 1) if month == 12 else (year, month + 1)
+    return out
+
+
+def _already_collected(year_month: str, sheet_names: list[str],
+                       existing: dict) -> bool:
+    """--resume 판정: 해당 월에 요청한 모든 사업장의 행이 이미 있는지."""
+    year, month = _parse_ym(year_month)
+    for sheet_name in sheet_names:
+        by_date = existing.get(sheet_name) or {}
+        if not any(d.year == year and d.month == month for d in by_date):
+            return False
+    return True
+
+
+def drop_collected_months(months: list[str], org_codes: list[str]) -> list[str]:
+    """이미 적재된 달을 제외한다 (--resume). 파일이 없으면 전체를 반환."""
+    raw_path = Path(energy_builder.DEFAULT_RAW_PATH)
+    if not raw_path.exists():
+        return months
+    existing = energy_builder.read_raw(raw_path)
+    sheet_names = [FACTORY_SHEET_MAP[c] for c in org_codes]
+    remaining = [m for m in months
+                 if not _already_collected(m, sheet_names, existing)]
+    skipped = len(months) - len(remaining)
+    if skipped:
+        log.info(f"--resume: 이미 수집된 {skipped}개월 건너뜀")
+    return remaining
+
+
+def confirm_plan(months: list[str], org_codes: list[str],
+                 assume_yes: bool) -> None:
+    """여러 달을 도는 실행은 소요가 길어 사용자 확인을 받는다."""
+    sheet_names = [FACTORY_SHEET_MAP[c] for c in org_codes]
+    queries = len(months) * len(org_codes)
+    minutes = queries * _SECONDS_PER_QUERY / 60
+
+    print()
+    print("=" * 66)
+    print("  MIS 에너지 실적 수집 — '원단위 실적입력(일단위)' 화면")
+    print("=" * 66)
+    print(f"  기간      : {months[0]} ~ {months[-1]}  ({len(months)}개월)")
+    print(f"  사업장    : {', '.join(sheet_names)}")
+    print(f"  조회 횟수 : {queries}회  (예상 {minutes:.0f}분)")
+    print(f"  적재 대상 : {energy_builder.DEFAULT_RAW_PATH}  (웹앱이 읽는 파일)")
+    print()
+    print("  ※ 해당 기간의 수집 항목은 화면 값으로 '덮어쓰기' 됩니다.")
+    print("     믹스생산량·원단위(legacy)는 건드리지 않습니다.")
+    print("  ※ 실행 중 마우스/키보드를 사용하지 마세요 (좌표 클릭 기반).")
+    print("=" * 66)
+
+    if assume_yes:
+        return
+    try:
+        answer = input("  진행할까요? [y/N] ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        # 파이프/리다이렉트 등 대화형 입력이 불가능한 환경 — 임의 진행하지 않는다
+        raise SystemExit(
+            "\n확인 입력을 받을 수 없습니다. 확인 없이 실행하려면 --yes 를 주세요."
+        )
+    if answer not in ("y", "yes"):
+        raise SystemExit("사용자가 취소했습니다.")
+
+
 # 화면 식별자 (utility_coords.json 의 coords 키와 동일)
 SCREEN_UNIT_INPUT = "unit_input"
-SCREEN_USAGE_TREND = "usage_trend"
 
-# ── 화면 1) '원단위 실적입력(일단위)' 그리드 열 순서 ──
+# ── '원단위 실적입력(일단위)' 그리드 열 순서 ──
 # 0번은 일자(=일 번호). None 은 무시할 열.
 # 주의: 화면 머리글은 '사용량 → 단가 → 비용' 순으로 보이지만 클립보드로 나오는 실제
 #       값은 '사용량 → 비용 → 단가' 순이다(2026-07-29 실측: 29700 × 203.8 = 6,052,906).
@@ -133,21 +273,6 @@ _COST_PRICE_TRIPLETS = (
 )
 # 단가는 화면에서 소수 2자리로 반올림되어 표시되므로 오차를 넉넉히 허용한다.
 _COST_PRICE_TOLERANCE = 0.02
-
-# ── 화면 2) '유틸리티 일자별 사용량 추이' 그리드 행 순서 ──
-# 신규 화면에 없는 믹스생산량·원단위만 취하고 나머지는 버린다.
-USAGE_TREND_ROW_KEYS = (
-    None,                   # 0  냉동전력량   (화면 1에서 수집)
-    None,                   # 1  공압기       (화면 1에서 수집)
-    None,                   # 2  전력량       (화면 1에서 수집)
-    None,                   # 3  연료량       (화면 1에서 수집)
-    None,                   # 4  용수량       (화면 1에서 수집)
-    None,                   # 5  폐수량       (화면 1에서 수집)
-    "mix_prod_kg",          # 6  믹스생산량[kg]
-    "power_per_ton_kwh",    # 7  전력원단위[kWh/mix-ton]
-    "fuel_per_ton_nm3",     # 8  연료원단위[N㎥/mix-ton]
-    "water_per_ton_ton",    # 9  용수원단위[ton/mix-ton]
-)
 
 # 대기 시간 기본값 (utility_coords.json의 "wait" 값으로 덮어씌워짐)
 WAIT_SHORT = 0.05        # 클릭/타이핑 후 미세 대기 (MIS는 즉시 반응)
@@ -226,6 +351,14 @@ def get_clipboard_text() -> str:
 # ---------------------------------------------------------------------------
 # 클립보드 파싱 공통
 # ---------------------------------------------------------------------------
+class EmptyGridError(ValueError):
+    """그리드에 일자 행이 없다 — 대개 해당 월/공장에 실적이 없는 정상 상황.
+
+    과거 월 백필처럼 수백 회 순회할 때 '실적 없음'과 '진짜 오류'를 구분하기 위해
+    별도 예외로 둔다 (전자는 traceback 없이 경고만 남긴다).
+    """
+
+
 def _read_clipboard_rows(raw_text: str) -> list[list[str]]:
     """MIS 클립보드 텍스트(CSV/TSV)를 셀 2차원 리스트로 파싱한다."""
     import csv
@@ -345,7 +478,8 @@ def parse_unit_input_clipboard(raw_text: str, year_month: str) -> dict:
             log.warning(f"  존재하지 않는 일자 무시: {year_month}-{day:02d}")
 
     if not by_date:
-        raise ValueError("일자 행을 하나도 찾지 못했습니다 (그리드 형식 변경?)")
+        raise EmptyGridError("일자 행을 하나도 찾지 못했습니다 "
+                            "(해당 월 실적 없음 또는 그리드 형식 변경)")
 
     _resolve_cost_price_pairs(by_date)
 
@@ -357,64 +491,28 @@ def parse_unit_input_clipboard(raw_text: str, year_month: str) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# 화면 2) '유틸리티 일자별 사용량 추이' 클립보드 파싱
-# ---------------------------------------------------------------------------
-def parse_usage_trend_clipboard(raw_text: str, year_month: str) -> dict:
-    """구 화면 클립보드(행=항목, 열=일자)에서 믹스생산량·원단위만 추출한다.
-
-    Returns: { date: { field_key: value } }
-    """
-    rows = _read_clipboard_rows(raw_text)
-
-    # 첫 행: 헤더 (일자)
-    day_numbers = []
-    for col in rows[0]:
-        m = re.search(r"(\d+)", str(col).strip())
-        if m:
-            day_numbers.append(int(m.group(1)))
-
-    year_int, month_int = (int(p) for p in year_month.split("-")[:2])
-    dates: list[date] = []
-    for day in day_numbers:
-        try:
-            dates.append(date(year_int, month_int, day))
-        except ValueError:
-            log.warning(f"  존재하지 않는 일자 무시: {year_month}-{day:02d}")
-
-    # 데이터 행 파싱 (첫 열 = 항목명 제거)
-    by_date: dict[date, dict] = {}
-    for row_idx, row in enumerate(rows[1:]):
-        if row_idx >= len(USAGE_TREND_ROW_KEYS):
-            break
-        key = USAGE_TREND_ROW_KEYS[row_idx]
-        if not key or len(row) < 2:
-            continue
-        for day_idx, cell in enumerate(row[1:]):
-            if day_idx >= len(dates):
-                break
-            value = _to_number(cell)
-            if value is not None:
-                by_date.setdefault(dates[day_idx], {})[key] = value
-
-    log.info(f"파싱 완료(보완): {len(by_date)}일 × {len([k for k in USAGE_TREND_ROW_KEYS if k])}항목")
-    return by_date
-
-
-# ---------------------------------------------------------------------------
 # MIS RPA 클래스
 # ---------------------------------------------------------------------------
 class MISUtilityRPA:
-    """MIS 에너지 일일 실적 자동 샘플링 RPA (신규 화면 + 구 화면 병행 수집)"""
+    """MIS 에너지 일일 실적 자동 샘플링 RPA ('원단위 실적입력' 단일 화면)"""
 
     def __init__(self, year_month: str = None, dry_run: bool = False,
-                 skip_trend: bool = False):
+                 org_codes: list[str] | None = None,
+                 year_months: list[str] | None = None):
         if year_month is None:
             ref_date = datetime.now() - timedelta(days=1)
             self.year_month = ref_date.strftime("%Y-%m")
         else:
             self.year_month = year_month
+        # 순회할 기준년월 — 여러 달을 주면 과거 데이터 수집(백필)이 된다.
+        # 화면은 한 번만 열고 기준년월만 바꿔 가며 돌기 때문에 일일 수집과
+        # 경로가 완전히 같다 (달 수만 다르다).
+        self.year_months = list(year_months) if year_months else [self.year_month]
         self.dry_run = dry_run
-        self.skip_trend = skip_trend
+        # 순회할 사업장 — None 이면 전체 (백필 시 일부만 재수집하는 용도)
+        self.org_codes = list(org_codes) if org_codes else list(FACTORY_SHEET_MAP)
+        # 좌표 오류로 직전 공장 그리드를 재복사한 사례 — (화면, 년월, 공장, 원본공장)
+        self.duplicate_grids: list[tuple[str, str, str, str]] = []
 
         # 좌표 설정 로드 — { 화면키: { 좌표명: 값 } }
         self.coords = self._load_coords()
@@ -422,8 +520,13 @@ class MISUtilityRPA:
         self.app = None
         self.main_window = None
         log.info(f"=== MIS 에너지 RPA 초기화 ===")
-        log.info(f"  기준년월: {self.year_month}  (D-1 자동 계산)")
-        log.info(f"  Dry-run: {self.dry_run} / 구 화면 생략: {self.skip_trend}")
+        if len(self.year_months) == 1:
+            log.info(f"  기준년월: {self.year_months[0]}")
+        else:
+            log.info(f"  기준년월: {self.year_months[0]} ~ {self.year_months[-1]} "
+                     f"({len(self.year_months)}개월)")
+        log.info(f"  Dry-run: {self.dry_run}")
+        log.info(f"  사업장: {', '.join(FACTORY_SHEET_MAP[c] for c in self.org_codes)}")
 
     # -----------------------------------------------------------------------
     # 설정
@@ -475,13 +578,9 @@ class MISUtilityRPA:
 
     def _validate_coords(self) -> None:
         """실행 전 필요한 좌표가 모두 채워져 있는지 확인한다."""
-        screens = [SCREEN_UNIT_INPUT]
-        if not self.skip_trend:
-            screens.append(SCREEN_USAGE_TREND)
-        for screen in screens:
-            for name in ("tree_menu", "factory_dropdown", "month_filter",
-                         "query_button", "copy_button", "factory_list"):
-                self._require_coord(screen, name)
+        for name in ("tree_menu", "factory_dropdown", "month_filter",
+                     "query_button", "copy_button", "factory_list"):
+            self._require_coord(SCREEN_UNIT_INPUT, name)
 
     # -----------------------------------------------------------------------
     # MIS 연결
@@ -556,9 +655,10 @@ class MISUtilityRPA:
     # -----------------------------------------------------------------------
     # 기준년월 설정 (순수 좌표 기반)
     # -----------------------------------------------------------------------
-    def set_year_month(self, screen: str):
+    def set_year_month(self, screen: str, year_month: str | None = None):
         """기준년월 필드에 값을 설정한다 (좌표 기반)."""
-        log.info(f"기준년월 설정: {self.year_month}")
+        year_month = year_month or self.year_month
+        log.info(f"기준년월 설정: {year_month}")
 
         x, y = self._require_coord(screen, "month_filter")
         log.info(f"  기준년월 클릭 ({x}, {y})")
@@ -566,7 +666,7 @@ class MISUtilityRPA:
         time.sleep(WAIT_SHORT)
         send_keys("^a")
         time.sleep(WAIT_SHORT)
-        send_keys(self.year_month, with_spaces=True)
+        send_keys(year_month, with_spaces=True)
         time.sleep(WAIT_SHORT)
 
     # -----------------------------------------------------------------------
@@ -656,18 +756,20 @@ class MISUtilityRPA:
     # -----------------------------------------------------------------------
     # 화면 단위 수집
     # -----------------------------------------------------------------------
-    def collect_screen(self, screen: str, parser) -> dict:
-        """한 화면을 열고 전 사업장을 순회하며 수집한다.
+    def _collect_factories(self, screen: str, parser, year_month: str) -> dict:
+        """열려 있는 화면에서 사업장을 순회하며 한 달치를 수집한다.
 
         Returns: { 시트명: { date: { field_key: value } } }
         """
-        self.navigate_to_screen(screen)
-        self.set_year_month(screen)
-
         collected: dict[str, dict] = {}
-        for org_code, sheet_name in FACTORY_SHEET_MAP.items():
+        # 그리드 지문 → 이미 수집한 사업장. 좌표가 어긋나 드롭다운 선택이 바뀌지
+        # 않으면 직전 공장의 그리드를 그대로 다시 복사하게 되는데, 값만 봐서는
+        # 알아채기 어렵다. 같은 지문이 두 번 나오면 적재하지 않고 오류로 남긴다.
+        fingerprints: dict[str, str] = {}
+        for org_code in self.org_codes:
+            sheet_name = FACTORY_SHEET_MAP[org_code]
             log.info("-" * 40)
-            log.info(f"▶ [{screen}] 사업장 처리: {org_code} → {sheet_name}")
+            log.info(f"▶ [{screen}/{year_month}] 사업장 처리: {org_code} → {sheet_name}")
             log.info("-" * 40)
             try:
                 self.select_factory(screen, org_code)
@@ -679,7 +781,20 @@ class MISUtilityRPA:
                     log.warning(f"  {org_code}: 데이터 없음 → 스킵")
                     continue
 
-                by_date = parser(clipboard_text, self.year_month)
+                fingerprint = hashlib.sha1(
+                    clipboard_text.strip().encode("utf-8", "replace")
+                ).hexdigest()
+                twin = fingerprints.get(fingerprint)
+                if twin:
+                    log.error(f"  {sheet_name}: 그리드가 '{twin}' 과(와) 완전히 동일 "
+                              f"→ 공장 선택이 바뀌지 않았습니다. 적재하지 않습니다.")
+                    log.error(f"    utility_coords.json 의 coords.{screen}"
+                              f".factory_list.{org_code} y좌표를 확인하세요.")
+                    self.duplicate_grids.append((screen, year_month, sheet_name, twin))
+                    continue
+                fingerprints[fingerprint] = sheet_name
+
+                by_date = parser(clipboard_text, year_month)
                 if not by_date:
                     log.warning(f"  {org_code}: 파싱된 날짜 없음 → 스킵")
                     continue
@@ -689,6 +804,9 @@ class MISUtilityRPA:
                 self.main_window.set_focus()
                 time.sleep(WAIT_SHORT)
 
+            except EmptyGridError as e:
+                # 해당 월/공장에 실적이 없는 정상 상황 — traceback 없이 넘어간다
+                log.warning(f"  {org_code} {year_month}: {e} → 스킵")
             except Exception as e:
                 log.error(f"  {org_code} 처리 중 오류: {e}", exc_info=True)
                 try:
@@ -699,80 +817,112 @@ class MISUtilityRPA:
 
         return collected
 
+    def collect_screen(self, screen: str, parser) -> dict:
+        """한 화면을 열고 기준년월 1개월치를 전 사업장 순회 수집한다."""
+        self.navigate_to_screen(screen)
+        self.set_year_month(screen)
+        return self._collect_factories(screen, parser, self.year_month)
+
+    def collect_months(self, screen: str, parser, year_months: list[str],
+                       on_month_done=None) -> dict:
+        """한 화면을 한 번만 열고 여러 달을 순회 수집한다 (과거 데이터 백필용).
+
+        Args:
+            year_months: ['2021-01', '2021-02', ...] 오름차순 권장
+            on_month_done: fn(year_month, month_records) — 월 단위 체크포인트 훅.
+                           수백 개월 순회 중 중단돼도 앞선 달이 보존되도록 한다.
+
+        Returns: 전체 월을 병합한 { 시트명: { date: { field_key: value } } }
+        """
+        self.navigate_to_screen(screen)
+
+        merged: dict[str, dict] = {}
+        for idx, year_month in enumerate(year_months, start=1):
+            log.info("=" * 60)
+            log.info(f"[{idx}/{len(year_months)}] {year_month} 수집")
+            log.info("=" * 60)
+            self.set_year_month(screen, year_month)
+
+            month_records = self._collect_factories(screen, parser, year_month)
+            for sheet_name, by_date in month_records.items():
+                merged.setdefault(sheet_name, {}).update(by_date)
+
+            if on_month_done:
+                on_month_done(year_month, month_records)
+
+        return merged
+
     # -----------------------------------------------------------------------
     # 전체 실행
     # -----------------------------------------------------------------------
     def run(self):
-        """두 화면을 순회하며 데이터를 추출 → RawDB 적재 → DB 재가공한다."""
+        """사업장을 순회하며 데이터를 추출해 RawDB_에너지.xlsx 에 적재한다."""
         log.info("=" * 60)
-        log.info("MIS 에너지 일일 실적 RPA 시작")
+        log.info("MIS 에너지 실적 RPA 시작")
         log.info("=" * 60)
 
         self._validate_coords()
 
-        # 1. 구 형식 파일 1회 이관 (RawDB_에너지[전치형] → DB_에너지)
-        if not self.dry_run:
-            energy_builder.migrate_legacy_rawdb()
-
-        # 2. MIS 연결
+        # 1. MIS 연결
         self.connect_mis()
         self.main_window.set_focus()
         time.sleep(WAIT_MEDIUM)
 
-        # 3. 산출물 백업
+        # 2. 산출물 백업
         if not self.dry_run:
-            for path in (energy_builder.DEFAULT_RAW_PATH,
-                         energy_builder.DEFAULT_OUTPUT_PATH):
-                self._backup(path)
+            self._backup(energy_builder.DEFAULT_RAW_PATH)
 
-        # 4. 화면 1 — 주수집 (사용량/단가/비용/COD)
-        records = self.collect_screen(SCREEN_UNIT_INPUT, parse_unit_input_clipboard)
+        # 3. 수집 + 적재 — 재가공 단계 없음. 이 파일을 BEMS 가 그대로 읽는다.
+        #    월 단위 체크포인트로 적재하므로 여러 달을 도는 중 중단돼도 앞선 달은 남는다.
+        t0 = time.time()
+        records = self.collect_months(
+            SCREEN_UNIT_INPUT, parse_unit_input_clipboard, self.year_months,
+            on_month_done=self._checkpoint,
+        )
+        elapsed = time.time() - t0
+
         if not records:
-            log.error("주수집 화면에서 아무 데이터도 얻지 못했습니다. 중단합니다.")
+            log.error("아무 데이터도 얻지 못했습니다.")
+            self.report_duplicate_grids()
             raise SystemExit(1)
 
-        # 5. 화면 2 — 보완 수집 (믹스생산량/원단위)
-        #    실패해도 주수집 결과는 반드시 적재한다.
-        if self.skip_trend:
-            log.info("구 화면(믹스/원단위) 수집 생략 — --skip-trend")
-        else:
-            try:
-                trend = self.collect_screen(SCREEN_USAGE_TREND,
-                                            parse_usage_trend_clipboard)
-                self._merge(records, trend)
-            except Exception as e:
-                log.error(f"구 화면 보완 수집 실패 (주수집 결과는 적재 계속): {e}",
-                          exc_info=True)
-
-        # 6. 적재 + 재가공
         day_count = sum(len(v) for v in records.values())
-        if self.dry_run:
-            log.info(f"[DRY-RUN] {len(records)}개 사업장 × 총 {day_count}일 (기록 안함)")
-            for sheet_name, by_date in records.items():
-                log.info(f"  {sheet_name}: {len(by_date)}일 "
-                         f"({min(by_date)} ~ {max(by_date)})")
-        else:
-            energy_builder.write_raw(records)
-            energy_builder.build_dataset()
-
         log.info("=" * 60)
+        log.info(f"수집 완료 — {elapsed / 60:.1f}분")
+        for sheet_name in sorted(records):
+            by_date = records[sheet_name]
+            log.info(f"  {sheet_name:8s} {len(by_date):>5}일  "
+                     f"({min(by_date)} ~ {max(by_date)})")
         log.info("DRY-RUN 완료 (엑셀 미기록)" if self.dry_run
-                 else f"RPA 완료: {len(records)}개 사업장 × 총 {day_count}일 적재")
+                 else f"적재 완료: {len(records)}개 사업장 / 총 {day_count}일 "
+                      f"→ {energy_builder.DEFAULT_RAW_PATH}")
+        self.report_duplicate_grids()
         log.info("=" * 60)
+
+    def _checkpoint(self, year_month: str, month_records: dict) -> None:
+        """한 달 수집이 끝날 때마다 즉시 적재한다 (중단 대비)."""
+        if not month_records:
+            log.warning(f"  {year_month}: 수집된 사업장 없음")
+            return
+        days = sum(len(v) for v in month_records.values())
+        log.info(f"  {year_month} 수집 완료: {len(month_records)}개 사업장 / {days}일")
+        if not self.dry_run:
+            energy_builder.write_raw(month_records)
+
+    def report_duplicate_grids(self) -> bool:
+        """좌표 오류로 중복 수집된 사업장을 요약한다. 있으면 True."""
+        if not self.duplicate_grids:
+            return False
+        log.error(f"⚠ 공장 선택이 바뀌지 않은 사례 {len(self.duplicate_grids)}건 "
+                  f"— 해당 사업장은 적재하지 않았습니다:")
+        for screen, year_month, sheet_name, twin in self.duplicate_grids:
+            log.error(f"    [{screen}/{year_month}] {sheet_name} = {twin} 의 그리드")
+        log.error("  → utility_coords.json 의 factory_list y좌표를 실측으로 교정하세요.")
+        return True
 
     # -----------------------------------------------------------------------
     # 보조
     # -----------------------------------------------------------------------
-    @staticmethod
-    def _merge(base: dict, extra: dict) -> None:
-        """보완 수집 결과를 주수집 결과에 병합한다 (주수집 값 우선 보존)."""
-        for sheet_name, by_date in extra.items():
-            target = base.setdefault(sheet_name, {})
-            for day, values in by_date.items():
-                slot = target.setdefault(day, {})
-                for key, value in values.items():
-                    slot.setdefault(key, value)
-
     @staticmethod
     def _backup(path) -> None:
         """산출물 엑셀을 backup/ 폴더에 타임스탬프로 복사한다."""
@@ -791,26 +941,65 @@ class MISUtilityRPA:
 # 메인 진입점
 # ---------------------------------------------------------------------------
 def main():
-    _setup_logging()
     parser = argparse.ArgumentParser(
-        description="MIS 에너지 일일 실적 RPA (원단위 실적입력 + 사용량 추이)"
+        description="MIS 에너지 실적 RPA (원단위 실적입력 화면)"
     )
     parser.add_argument(
         "--ym", type=str, default=None,
-        help="기준년월 (YYYY-MM). 미지정 시 D-1 자동 계산"
+        help="기준년월 (YYYY-MM) 1개월. 미지정 시 D-1 자동 계산"
+    )
+    parser.add_argument(
+        "--from", dest="ym_from", default=None,
+        help="시작 기준년월 (YYYY-MM). 과거 데이터 수집 — --ym 대신 사용"
+    )
+    parser.add_argument(
+        "--to", dest="ym_to", default=None,
+        help="종료 기준년월 (YYYY-MM). 기본: D-1 기준월"
+    )
+    parser.add_argument(
+        "--resume", action="store_true",
+        help="RawDB 에 이미 있는 달은 건너뛴다 (중단 후 이어서 실행)"
     )
     parser.add_argument(
         "--dry-run", action="store_true",
         help="MIS 조회만 실행, 엑셀 기록하지 않음"
     )
     parser.add_argument(
-        "--skip-trend", action="store_true",
-        help="구 화면(믹스생산량·원단위) 보완 수집 생략"
+        "--factories", default=None,
+        help="수집할 사업장. 코드 또는 공장명 CSV (예: '논산,경산' / 'F40,F50'). "
+             "기본: 전체"
+    )
+    parser.add_argument(
+        "--yes", action="store_true",
+        help="여러 달 수집 시 확인 프롬프트 생략"
     )
     args = parser.parse_args()
 
-    rpa = MISUtilityRPA(year_month=args.ym, dry_run=args.dry_run,
-                        skip_trend=args.skip_trend)
+    if args.ym and args.ym_from:
+        raise SystemExit("--ym 과 --from 은 함께 쓸 수 없습니다.")
+    if args.ym_to and not args.ym_from:
+        raise SystemExit("--to 는 --from 과 함께 써야 합니다.")
+
+    org_codes = resolve_org_codes(args.factories)
+    default_to = (datetime.now() - timedelta(days=1)).strftime("%Y-%m")
+
+    if args.ym_from:
+        # ── 과거 데이터 수집: 여러 달 순회 ──
+        _setup_logging("backfill")
+        months = month_range(args.ym_from, args.ym_to or default_to)
+        if args.resume:
+            months = drop_collected_months(months, org_codes)
+            if not months:
+                print("\n수집할 달이 없습니다 (모두 RawDB 에 존재).")
+                return
+        confirm_plan(months, org_codes, args.yes)
+    else:
+        # ── 일일 수집: 1개월 ──
+        _setup_logging()
+        months = [args.ym] if args.ym else [default_to]
+
+    rpa = MISUtilityRPA(dry_run=args.dry_run, org_codes=org_codes,
+                        year_months=months)
     rpa.run()
 
 
