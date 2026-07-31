@@ -14,7 +14,7 @@ import tempfile
 from datetime import date
 from pathlib import Path
 
-from openpyxl import load_workbook
+from openpyxl import Workbook, load_workbook
 
 try:
     sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
@@ -97,21 +97,67 @@ def test_cost_price_autodetect() -> None:
 
 
 def test_write_and_read_raw() -> None:
-    """적재/재읽기 + legacy 항목(믹스·원단위) 과거 값 보존."""
+    """적재/재읽기 + 과거 값 보존 + 신규 원단위 수식 자동 채움."""
     with tempfile.TemporaryDirectory() as tmp:
         raw_path = Path(tmp) / "RawDB_에너지.xlsx"
+        production_path = Path(tmp) / "DB_생산실적.xlsx"
+        production_wb = Workbook()
+        production_ws = production_wb.active
+        production_ws.title = "daily"
+        production_ws.append([
+            "date", "item_code", "item_name", "factory",
+            "category1", "category2", "planned_qty", "actual_qty",
+        ])
+        for day_number, quantities in {
+            1: (100_000, 20_000),
+            2: (110_000, 30_000),
+            3: (120_000, 40_000),
+        }.items():
+            for item_code, quantity in zip(("A", "B"), quantities):
+                production_ws.append([
+                    date(2026, 7, day_number), item_code, item_code, "F10A",
+                    "냉장", "MY", 0, quantity,
+                ])
+        production_wb.save(production_path)
+        production_wb.close()
+
+        # DB 통합보다 먼저 완료되는 최신 생산 RawDB. 같은 월의 이전 날짜가
+        # 수정되면 이 값이 DB보다 우선해 N열을 다시 덮어써야 한다.
+        production_raw_path = Path(tmp) / "RawDB_생산실적.xlsx"
+        production_raw_wb = Workbook()
+        production_raw_ws = production_raw_wb.active
+        production_raw_ws.title = "F10_냉장"
+        production_raw_ws.append([
+            "__PERIOD__", date(2026, 7, 1), date(2026, 7, 3),
+        ])
+        production_raw_ws.append([
+            "Item Code", "Item 명", "물품대", "누계 계획", "누계 실적",
+            "누계 진척률", "01일", "02일", "03일",
+        ])
+        production_raw_ws.append([
+            "A", "바나나우유", 0, 0, 0, 0, 110_000, 130_000, 150_000,
+        ])
+        production_raw_ws.append([
+            "B", "딸기우유", 0, 0, 0, 0, 20_000, 20_000, 20_000,
+        ])
+        production_raw_wb.save(production_raw_path)
+        production_raw_wb.close()
 
         # 구 화면으로 수집해 둔 과거 값 — 6/30 행에 믹스/원단위가 들어있는 상태
         eb.write_raw({"남양주1": {date(2026, 6, 30): {
             "total_power_kwh": 30000, "mix_prod_kg": 111111,
             "power_per_ton_kwh": 270.0, "fuel_per_ton_nm3": 20.0,
             "water_per_ton_ton": 5.0,
-        }}}, raw_path)
+        }}}, raw_path, sync_production=False, recalculate=False)
 
         # 신규 수집 — unit_input 항목만
         collected = {"남양주1": rpa.parse_unit_input_clipboard(
             _unit_input_clipboard(), "2026-07")}
-        eb.write_raw(collected, raw_path)
+        eb.write_raw(
+            collected, raw_path,
+            production_path=production_path, production_raw_path=production_raw_path,
+            recalculate=False,
+        )
 
         round_tripped = eb.read_raw(raw_path)
         assert set(round_tripped) == {"남양주1"}
@@ -123,8 +169,31 @@ def test_write_and_read_raw() -> None:
         assert day1["power_cost_krw"] == 6823950.9
         assert day1["power_price_krw_kwh"] == 194.22
         unit_input_keys = {f.key for f in eb.FIELDS if f.source == "unit_input"}
-        assert set(day1) == unit_input_keys, f"수집 항목 불일치: {sorted(day1)}"
-        assert "mix_prod_kg" not in day1, "legacy 항목이 신규 날짜에 채워짐"
+        assert set(day1) == unit_input_keys | {"mix_prod_kg"}, (
+            f"수집 항목 불일치: {sorted(day1)}"
+        )
+        assert day1["mix_prod_kg"] == 130_000, "최신 Raw 생산량이 DB보다 우선하지 않음"
+
+        # openpyxl은 수식을 계산하지 않으므로 data_only 재읽기에는 원단위가 없지만,
+        # 실제 워크북의 신규 날짜 O/P/Q 셀에는 수식이 빠짐없이 들어가야 한다.
+        formula_wb = load_workbook(raw_path, data_only=False)
+        formula_ws = formula_wb["남양주1"]
+        row_by_date = {
+            formula_ws.cell(row=row_idx, column=1).value.date(): row_idx
+            for row_idx in range(2, formula_ws.max_row + 1)
+        }
+        for day in (date(2026, 7, 1), date(2026, 7, 2), date(2026, 7, 3)):
+            row_idx = row_by_date[day]
+            assert formula_ws.cell(row_idx, 15).value == (
+                f"=D{row_idx}*1000/$N{row_idx}"
+            )
+            assert formula_ws.cell(row_idx, 16).value == (
+                f"=G{row_idx}*1000/$N{row_idx}"
+            )
+            assert formula_ws.cell(row_idx, 17).value == (
+                f"=J{row_idx}*1000/$N{row_idx}"
+            )
+        formula_wb.close()
 
         # 과거 legacy 값은 그대로 살아 있어야 한다
         old = by_date[date(2026, 6, 30)]
@@ -133,12 +202,54 @@ def test_write_and_read_raw() -> None:
         print(f"  ✓ 적재/재읽기 — {len(unit_input_keys)}개 수집 항목 왕복, "
               f"legacy 과거 값 보존")
 
+        # 최신 생산 RawDB에서 이전 날짜가 수정되면 같은 월 재적재 때 N열도 갱신한다.
+        production_raw_wb = load_workbook(production_raw_path)
+        production_raw_wb["F10_냉장"]["G3"] = 120_000
+        production_raw_wb.save(production_raw_path)
+        production_raw_wb.close()
+        eb._PRODUCTION_RAW_CACHE = None
+
         # 같은 데이터 재적재 시 행이 늘지 않아야 한다 (upsert)
-        eb.write_raw(collected, raw_path)
+        eb.write_raw(
+            collected, raw_path,
+            production_path=production_path, production_raw_path=production_raw_path,
+            recalculate=False,
+        )
         wb = load_workbook(raw_path)
         assert wb["남양주1"].max_row == 1 + 4, wb["남양주1"].max_row
+        row_by_date = {
+            wb["남양주1"].cell(row=row_idx, column=1).value.date(): row_idx
+            for row_idx in range(2, wb["남양주1"].max_row + 1)
+        }
+        assert wb["남양주1"].cell(row_by_date[date(2026, 7, 1)], 14).value == 140_000
         wb.close()
-        print("  ✓ upsert — 재실행해도 행 중복 없음")
+        print("  ✓ 월 전체 재동기화 — 이전 날짜 생산량 수정 반영 + 행 중복 없음")
+
+
+def test_missing_production_blocks_write() -> None:
+    """생산실적 없는 날짜는 빈 원단위를 만들지 말고 적재 전에 중단한다."""
+    with tempfile.TemporaryDirectory() as tmp:
+        raw_path = Path(tmp) / "RawDB_에너지.xlsx"
+        production_path = Path(tmp) / "DB_생산실적.xlsx"
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "daily"
+        ws.append(["date", "factory", "actual_qty"])
+        ws.append([date(2026, 7, 1), "F10A", 100_000])
+        wb.save(production_path)
+        wb.close()
+
+        try:
+            eb.write_raw(
+                {"남양주1": {date(2026, 7, 2): {"total_power_kwh": 1_000}}},
+                raw_path, production_path=production_path, recalculate=False,
+            )
+        except ValueError as exc:
+            assert "생산 RPA를 먼저 실행" in str(exc), exc
+        else:
+            raise AssertionError("생산실적 누락인데 RawDB 적재가 진행됨")
+        assert not raw_path.exists(), "검증 실패 전에 RawDB 파일이 생성됨"
+        print("  ✓ 생산량 누락 차단 — 빈 분모/원단위 적재 없음")
 
 
 def test_bems_can_parse_raw() -> None:
@@ -171,7 +282,8 @@ def test_bems_can_parse_raw() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         raw_path = Path(tmp) / "RawDB_에너지.xlsx"
         eb.write_raw({"남양주1": rpa.parse_unit_input_clipboard(
-            _unit_input_clipboard(), "2026-07")}, raw_path)
+            _unit_input_clipboard(), "2026-07")}, raw_path,
+            sync_production=False, recalculate=False)
 
         df = pd.read_excel(raw_path, sheet_name="남양주1", engine="openpyxl")
 
@@ -347,7 +459,8 @@ def test_duplicate_grid_guard() -> None:
 def main() -> int:
     print("에너지 파이프라인 검증")
     for fn in (test_parse_unit_input, test_cost_price_autodetect,
-               test_write_and_read_raw, test_bems_can_parse_raw,
+               test_write_and_read_raw, test_missing_production_blocks_write,
+               test_bems_can_parse_raw,
                test_collect_months, test_resolve_org_codes,
                test_duplicate_grid_guard):
         fn()
