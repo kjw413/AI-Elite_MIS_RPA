@@ -175,7 +175,7 @@ def test_write_and_read_raw() -> None:
         assert day1["mix_prod_kg"] == 130_000, "최신 Raw 생산량이 DB보다 우선하지 않음"
 
         # openpyxl은 수식을 계산하지 않으므로 data_only 재읽기에는 원단위가 없지만,
-        # 실제 워크북의 신규 날짜 O/P/Q 셀에는 수식이 빠짐없이 들어가야 한다.
+        # 실제 워크북의 신규 날짜 O~S 셀에는 수식이 빠짐없이 들어가야 한다.
         formula_wb = load_workbook(raw_path, data_only=False)
         formula_ws = formula_wb["남양주1"]
         row_by_date = {
@@ -185,12 +185,18 @@ def test_write_and_read_raw() -> None:
         for day in (date(2026, 7, 1), date(2026, 7, 2), date(2026, 7, 3)):
             row_idx = row_by_date[day]
             assert formula_ws.cell(row_idx, 15).value == (
-                f"=D{row_idx}*1000/$N{row_idx}"
+                f"=B{row_idx}*1000/$N{row_idx}"
             )
             assert formula_ws.cell(row_idx, 16).value == (
-                f"=G{row_idx}*1000/$N{row_idx}"
+                f"=C{row_idx}*1000/$N{row_idx}"
             )
             assert formula_ws.cell(row_idx, 17).value == (
+                f"=D{row_idx}*1000/$N{row_idx}"
+            )
+            assert formula_ws.cell(row_idx, 18).value == (
+                f"=G{row_idx}*1000/$N{row_idx}"
+            )
+            assert formula_ws.cell(row_idx, 19).value == (
                 f"=J{row_idx}*1000/$N{row_idx}"
             )
         formula_wb.close()
@@ -265,6 +271,8 @@ def test_bems_can_parse_raw() -> None:
     # BEMS daily_energy_sync_service._KOR_SUBSTR_MAP / EXPECTED_COLUMNS 사본
     kor_substr_map = {
         "날짜": "date", "일자": "date",
+        "냉동원단위": "freezing_per_ton_kwh",
+        "공압기원단위": "air_compressor_per_ton_kwh",
         "냉동전력량": "freezing_power_kwh", "공압기": "air_compressor_kwh",
         "공업기": "air_compressor_kwh", "공기압축기": "air_compressor_kwh",
         "전력량": "total_power_kwh", "연료량": "fuel_nm3",
@@ -276,8 +284,9 @@ def test_bems_can_parse_raw() -> None:
     }
     expected = ["date", "freezing_power_kwh", "air_compressor_kwh",
                 "total_power_kwh", "fuel_nm3", "water_ton", "wastewater_ton",
-                "mix_prod_kg", "power_per_ton_kwh", "fuel_per_ton_nm3",
-                "water_per_ton_ton"]
+                "mix_prod_kg", "freezing_per_ton_kwh",
+                "air_compressor_per_ton_kwh", "power_per_ton_kwh",
+                "fuel_per_ton_nm3", "water_per_ton_ton"]
 
     with tempfile.TemporaryDirectory() as tmp:
         raw_path = Path(tmp) / "RawDB_에너지.xlsx"

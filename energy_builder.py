@@ -22,8 +22,9 @@ MIS '원단위 실적입력(일단위)' 화면에서 수집한 에너지 실적�
 - 수집 대상 월의 믹스생산량은 방금 수집한 `RawDB_생산실적.xlsx`의 공장별 actual_qty
   합계로 월 전체를 다시 동기화한다. DB 파일은 과거 기간만 보완하고, 생산량이 없으면
   빈 원단위를 만들지 않고 적재를 중단한다.
-- 전력·연료·용수 원단위는 Python에서 계산하지 않고 RawDB 수식으로 관리한다. 빈 수식을
-  자동 보완한 뒤 Excel에서 전체 재계산·저장해 유틸리티 실적 변경을 바로 반영한다.
+- 냉동·공압·전력·연료·용수 원단위는 Python에서 계산하지 않고 RawDB 수식으로
+  관리한다. 빈 수식을 자동 보완한 뒤 Excel에서 전체 재계산·저장해 유틸리티 실적
+  변경을 바로 반영한다.
 """
 
 from __future__ import annotations
@@ -85,6 +86,10 @@ FIELDS: tuple[EnergyField, ...] = (
     EnergyField("water_ton",            "용수량[ton]",                "unit_input"),
     EnergyField("wastewater_ton",       "폐수량[ton]",                "unit_input"),
     EnergyField("mix_prod_kg",          "믹스생산량[kg]",             "production"),
+    EnergyField("freezing_per_ton_kwh", "냉동원단위[kWh/mix-ton]",    "formula"),
+    EnergyField(
+        "air_compressor_per_ton_kwh", "공압기원단위[kWh/mix-ton]", "formula",
+    ),
     EnergyField("power_per_ton_kwh",    "전력원단위[kWh/mix-ton]",    "formula"),
     EnergyField("fuel_per_ton_nm3",     "연료원단위[N㎥/mix-ton]",    "formula"),
     EnergyField("water_per_ton_ton",    "용수원단위[ton/mix-ton]",    "formula"),
@@ -107,6 +112,7 @@ RAW_COLUMN_KEYS: tuple[str, ...] = (
     "water_ton", "wastewater_ton",
     "influent_cod_ppm", "effluent_cod_ppm",
     "mix_prod_kg",
+    "freezing_per_ton_kwh", "air_compressor_per_ton_kwh",
     "power_per_ton_kwh", "fuel_per_ton_nm3", "water_per_ton_ton",
 )
 RAW_DATE_HEADER = "날짜"
@@ -115,6 +121,8 @@ RAW_DATE_HEADER = "날짜"
 # 사용자가 만든 수식이 있으면 행 참조만 옮겨 복제하고, 템플릿이 없을 때만 아래
 # 열 매핑으로 같은 수식을 생성한다.
 UNIT_FORMULA_SOURCE_KEYS: dict[str, str] = {
+    "freezing_per_ton_kwh": "freezing_power_kwh",
+    "air_compressor_per_ton_kwh": "air_compressor_kwh",
     "power_per_ton_kwh": "total_power_kwh",
     "fuel_per_ton_nm3": "fuel_nm3",
     "water_per_ton_ton": "water_ton",
