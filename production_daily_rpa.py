@@ -15,8 +15,8 @@
   2. RawDB_생산실적.xlsx 시트명 스캔 → (sheet_name, factory, category) 목록 생성
   3. 공장별로 묶어 순회 (공장 드롭다운 변경 최소화)
      a. ORG 드롭다운 공장 선택 (공장이 바뀔 때만)
-     b. 기준일자(시작) = D-1가 속한 월의 1일
-        기준일자(종료) = D-1
+     b. 기본 조회 = D-1가 속한 월의 1일 ~ D-1
+        직전 수집일 이후 누락이 있으면 누락 구간을 월별로 먼저 조회·통합
      c. category1 드롭다운 선택
      d. 항목구분 드롭다운 "중량" 선택 (최초 1회)
      e. 조회 + 로딩 대기
@@ -30,7 +30,7 @@
        production_dw_sync_service 가 파일 mtime 변화를 보고 자동 처리
 
 Usage:
-  python production_daily_rpa.py              # 기본: D-1 기준 + DW 통합 자동 수행
+  python production_daily_rpa.py              # D-1 기준 + 이전 누락 자동 복구 + DW 통합
   python production_daily_rpa.py --date 2026-05-14
   python production_daily_rpa.py --dry-run    # MIS 조회만, Excel/DW 미기록
   python production_daily_rpa.py --skip-dw-build   # Raw 샘플링만, DW 통합 생략
@@ -45,7 +45,7 @@ import shutil
 import logging
 import argparse
 import re
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import pandas as pd
@@ -173,6 +173,141 @@ def discover_targets(raw_file: str):
     return targets
 
 
+def _as_date(value) -> date | None:
+    """Excel 날짜 셀 값을 date 로 정규화한다."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+
+    text = str(value).strip()
+    if not text:
+        return None
+    for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%y-%m-%d", "%y/%m/%d"):
+        try:
+            return datetime.strptime(text, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def load_collected_dates_by_sheet(
+    output_path: str | Path,
+    sheet_names: list[str],
+) -> dict[str, set[date]]:
+    """DB_생산실적의 품목군 시트별 수집 완료 날짜를 읽는다.
+
+    각 품목군 wide 시트에 날짜 행이 있고 품목 값이 하나 이상 있을 때만 수집
+    완료로 본다. 값이 모두 빈 날짜 행은 출력 피벗이 만든 자리표시자일 수 있다.
+    파일을 아직 만들지 않았거나 읽을 수 없으면 빈 이력을 반환해 기존의 현재 월
+    조회만 수행하게 한다.
+    """
+    path = Path(output_path)
+    if not path.exists():
+        return {}
+
+    import openpyxl
+
+    try:
+        wb = openpyxl.load_workbook(
+            path, read_only=True, data_only=True, keep_links=False
+        )
+    except Exception as exc:
+        log.warning(f"생산실적 수집 이력 확인 실패({path}): {exc}")
+        return {}
+
+    result: dict[str, set[date]] = {}
+    try:
+        for sheet_name in sheet_names:
+            dates: set[date] = set()
+            result[sheet_name] = dates
+            if sheet_name not in wb.sheetnames:
+                continue
+
+            rows = wb[sheet_name].iter_rows(values_only=True)
+            try:
+                header = next(rows)
+            except StopIteration:
+                continue
+
+            date_index = next(
+                (
+                    idx
+                    for idx, value in enumerate(header)
+                    if str(value).strip() == "날짜"
+                ),
+                None,
+            )
+            if date_index is None:
+                continue
+
+            for row in rows:
+                if date_index >= len(row):
+                    continue
+                parsed = _as_date(row[date_index])
+                has_actual_cell = any(
+                    value is not None
+                    for idx, value in enumerate(row)
+                    if idx != date_index
+                )
+                if parsed is not None and has_actual_cell:
+                    dates.add(parsed)
+    finally:
+        wb.close()
+
+    return result
+
+
+def plan_collection_periods(
+    end_date: date,
+    collected_dates_by_sheet: dict[str, set[date]],
+) -> list[tuple[date, date]]:
+    """마지막 수집일 이후 누락 구간과 현재 월 조회 구간을 월별로 계획한다.
+
+    생산실적 그리드의 일자 열은 01일처럼 연월 정보가 없으므로 한 조회가
+    두 달에 걸치면 안 된다. 현재 월 시작일의 직전 날짜가 어느 대상 시트에서든
+    빠졌다면, 해당 시트들의 마지막 수집일 다음 날 중 가장 이른 날짜부터 직전
+    월 말일까지 별도 조회한다.
+    """
+    current_start = end_date.replace(day=1)
+    current_period = (current_start, end_date)
+    if not collected_dates_by_sheet:
+        return [current_period]
+
+    previous_day = current_start - timedelta(days=1)
+    if all(
+        previous_day in dates
+        for dates in collected_dates_by_sheet.values()
+    ):
+        return [current_period]
+
+    if not any(collected_dates_by_sheet.values()):
+        return [current_period]
+
+    previous_month_start = previous_day.replace(day=1)
+    missing_starts: list[date] = []
+    for dates in collected_dates_by_sheet.values():
+        if previous_day in dates:
+            continue
+        collected_in_previous_month = [
+            day
+            for day in dates
+            if previous_month_start <= day <= previous_day
+        ]
+        if collected_in_previous_month:
+            missing_starts.append(max(collected_in_previous_month) + timedelta(days=1))
+        else:
+            missing_starts.append(previous_month_start)
+
+    if not missing_starts:
+        return [current_period]
+
+    recovery_start = min(missing_starts)
+    return [(recovery_start, previous_day), current_period]
+
+
 # ---------------------------------------------------------------------------
 # MIS RPA 클래스
 # ---------------------------------------------------------------------------
@@ -186,17 +321,17 @@ class MISProductionRPA:
         build_dw: bool = True,
         dw_output: str | None = None,
     ):
+        self.auto_recover_missing_dates = ref_date is None
         if ref_date is None:
             d = datetime.now() - timedelta(days=1)
         else:
             d = datetime.strptime(ref_date, "%Y-%m-%d")
 
-        self.end_date_obj = d
-        self.start_date_obj = d.replace(day=1)
-        self.start_date = self.start_date_obj.strftime("%Y-%m-%d")
-        self.end_date = self.end_date_obj.strftime("%Y-%m-%d")
-        # 시트명: YYYY-MM (시작일 기준 — 같은 월이므로 종료일 기준과 동일)
-        self.sheet_name = self.start_date_obj.strftime("%Y-%m")
+        self.requested_end_date = d.date()
+        self._set_collection_period(
+            self.requested_end_date.replace(day=1),
+            self.requested_end_date,
+        )
 
         self.dry_run = dry_run
         self.build_dw = build_dw
@@ -210,6 +345,54 @@ class MISProductionRPA:
         log.info(f"  시트명  : {self.sheet_name}")
         log.info(f"  Dry-run : {self.dry_run}")
         log.info(f"  DW 통합 : {'실행' if self.build_dw else '생략'}")
+
+    def _set_collection_period(self, start: date, end: date) -> None:
+        """현재 MIS 조회 기간을 같은 월 안의 구간으로 설정한다."""
+        if start > end:
+            raise ValueError(f"조회 기간 오류: {start} > {end}")
+        if (start.year, start.month) != (end.year, end.month):
+            raise ValueError(f"생산실적 조회는 월을 넘길 수 없습니다: {start} ~ {end}")
+
+        self.start_date_obj = datetime(start.year, start.month, start.day)
+        self.end_date_obj = datetime(end.year, end.month, end.day)
+        self.start_date = start.strftime("%Y-%m-%d")
+        self.end_date = end.strftime("%Y-%m-%d")
+        self.sheet_name = start.strftime("%Y-%m")
+
+    def _plan_collection_periods(self, targets: list[dict]) -> list[tuple[date, date]]:
+        """자동 실행이면 시트별 마지막 수집일을 확인해 누락 구간을 추가한다."""
+        current_period = (
+            self.requested_end_date.replace(day=1),
+            self.requested_end_date,
+        )
+        # --date 는 명시된 월을 재수집하는 용도이므로 자동 누락 복구를 섞지 않는다.
+        if not self.auto_recover_missing_dates:
+            return [current_period]
+
+        output_path = self.dw_output or sampled_db_path(
+            "DB_생산실적.xlsx", "PRODUCTION_DW_XLSX"
+        )
+        target_sheets = [target["sheet_name"] for target in targets]
+        collected = load_collected_dates_by_sheet(output_path, target_sheets)
+        periods = plan_collection_periods(self.requested_end_date, collected)
+
+        if len(periods) > 1:
+            recovery_start, recovery_end = periods[0]
+            missing_sheets = [
+                name
+                for name, dates in collected.items()
+                if recovery_end not in dates
+            ]
+            log.warning(
+                f"이전 수집 누락 감지: {recovery_start} ~ {recovery_end} "
+                f"(대상 시트 {len(missing_sheets)}개) → 현재 월보다 먼저 복구"
+            )
+        elif collected and any(collected.values()):
+            previous_day = current_period[0] - timedelta(days=1)
+            log.info(f"이전 수집일 확인 완료: {previous_day} 누락 없음")
+        else:
+            log.info("기존 수집 이력이 없어 현재 월 기본 조회만 수행합니다.")
+        return periods
 
     # -----------------------------------------------------------------------
     # 좌표 설정 로드
@@ -524,6 +707,74 @@ class MISProductionRPA:
         log.info("DB UPSERT는 다음 앱 기동 시 production_dw_sync_service 가 자동 처리합니다.")
         return True
 
+    def _collect_period(self, targets: list[dict]) -> tuple[int, int, int]:
+        """현재 설정된 한 달 내 기간을 모든 대상 시트에서 수집한다."""
+        period_marker = [PERIOD_MARKER, self.start_date, self.end_date]
+        current_factory = None
+        total_rows = 0
+        success = 0
+        failed = 0
+
+        for target in targets:
+            log.info("=" * 50)
+            log.info(
+                f"▶ {target['sheet_name']} (factory={target['factory']}, "
+                f"category={target['category']}, suffix={target['suffix'] or '-'})"
+            )
+            log.info("=" * 50)
+
+            try:
+                if target["factory"] != current_factory:
+                    self.select_factory(target["factory"])
+                    time.sleep(WAIT_SHORT)
+                    current_factory = target["factory"]
+
+                self.select_category(target["category"])
+                self.click_query()
+                clipboard_text = self.copy_grid_data()
+
+                if not clipboard_text.strip():
+                    log.warning("  데이터 없음 → 스킵")
+                    failed += 1
+                    continue
+
+                rows = parse_clipboard_rows(clipboard_text)
+                if not rows:
+                    log.warning("  파싱 결과 없음 → 스킵")
+                    failed += 1
+                    continue
+
+                rows_with_marker = [period_marker] + rows
+                if self.dry_run:
+                    log.info(
+                        f"  [DRY-RUN] {target['sheet_name']} "
+                        f"({self.start_date}~{self.end_date}): "
+                        f"{len(rows)}행 × {len(rows[0])}열 (+마커, 기록 안함)"
+                    )
+                    success += 1
+                else:
+                    written = paste_to_sheet(
+                        RAW_FILE, target["sheet_name"], rows_with_marker
+                    )
+                    total_rows += written
+                    if written > 0:
+                        success += 1
+                    else:
+                        failed += 1
+
+                self.main_window.set_focus()
+                time.sleep(WAIT_SHORT)
+
+            except Exception as exc:
+                log.error(f"  처리 중 오류: {exc}", exc_info=True)
+                failed += 1
+                try:
+                    self.main_window.set_focus()
+                except Exception:
+                    pass
+
+        return success, failed, total_rows
+
     # -----------------------------------------------------------------------
     # 전체 실행
     # -----------------------------------------------------------------------
@@ -537,79 +788,51 @@ class MISProductionRPA:
             log.error(f"작업 대상 시트가 없습니다: {RAW_FILE}")
             return
 
+        periods = self._plan_collection_periods(targets)
+
         self.connect_mis()
         self.main_window.set_focus()
         time.sleep(WAIT_MEDIUM)
 
         self.navigate_to_production_screen()
-        self.set_date_range()
-        self.select_item_type()
-
         self.backup_raw_file()
 
-        # 기간 마커 — 모든 시트 1행에 동일하게 기입 (빌드가 月·윈도우 산출에 사용)
-        period_marker = [PERIOD_MARKER, self.start_date, self.end_date]
-
-        current_factory = None
         total_rows = 0
         success = 0
         failed = 0
 
-        for t in targets:
-            log.info("=" * 50)
-            log.info(f"▶ {t['sheet_name']} (factory={t['factory']}, "
-                     f"category={t['category']}, suffix={t['suffix'] or '-'})")
-            log.info("=" * 50)
+        for period_index, (period_start, period_end) in enumerate(periods, start=1):
+            self._set_collection_period(period_start, period_end)
+            log.info("=" * 60)
+            log.info(
+                f"수집 기간 [{period_index}/{len(periods)}]: "
+                f"{self.start_date} ~ {self.end_date}"
+            )
+            log.info("=" * 60)
+            self.set_date_range()
+            if period_index == 1:
+                self.select_item_type()
 
-            try:
-                # 공장이 바뀔 때만 드롭다운 조작
-                if t["factory"] != current_factory:
-                    self.select_factory(t["factory"])
-                    time.sleep(WAIT_SHORT)
-                    current_factory = t["factory"]
+            period_success, period_failed, period_rows = self._collect_period(targets)
+            success += period_success
+            failed += period_failed
+            total_rows += period_rows
 
-                self.select_category(t["category"])
-                self.click_query()
-                clipboard_text = self.copy_grid_data()
-
-                if not clipboard_text.strip():
-                    log.warning(f"  데이터 없음 → 스킵")
-                    failed += 1
-                    continue
-
-                rows = parse_clipboard_rows(clipboard_text)
-                if not rows:
-                    log.warning(f"  파싱 결과 없음 → 스킵")
-                    failed += 1
-                    continue
-
-                # 1행 기간 마커 + 2행부터 그리드. 빌드가 마커로 月·윈도우 산출.
-                rows_with_marker = [period_marker] + rows
-
-                if self.dry_run:
-                    log.info(f"  [DRY-RUN] {t['sheet_name']} ({self.start_date}~{self.end_date}): "
-                             f"{len(rows)}행 × {len(rows[0])}열 (+마커, 기록 안함)")
-                else:
-                    written = paste_to_sheet(
-                        RAW_FILE, t["sheet_name"], rows_with_marker
+            has_next_period = period_index < len(periods)
+            if (
+                has_next_period
+                and not self.dry_run
+                and period_success > 0
+            ):
+                log.info(
+                    "누락 기간 Raw 데이터 보존을 위해 현재 기간을 먼저 DW에 통합합니다."
+                )
+                if not self.consolidate_to_dw():
+                    raise RuntimeError(
+                        "누락 기간 DW 통합 실패 — Raw 덮어쓰기를 막기 위해 "
+                        "현재 월 수집을 중단합니다."
                     )
-                    total_rows += written
-                    if written > 0:
-                        success += 1
-                    else:
-                        failed += 1
-
-                self.main_window.set_focus()
-                time.sleep(WAIT_SHORT)
-
-            except Exception as e:
-                log.error(f"  처리 중 오류: {e}", exc_info=True)
-                failed += 1
-                try:
-                    self.main_window.set_focus()
-                except Exception:
-                    pass
-                continue
+                    return
 
         log.info("=" * 60)
         if self.dry_run:
@@ -643,7 +866,8 @@ def main():
     )
     parser.add_argument(
         "--date", type=str, default=None,
-        help="기준 종료일 (YYYY-MM-DD). 미지정 시 D-1 자동. 시작일은 해당 월 1일."
+        help="기준 종료일 (YYYY-MM-DD). 미지정 시 D-1 및 이전 누락 자동 복구. "
+             "명시 시 해당 월 1일부터 지정일까지 재수집."
     )
     parser.add_argument(
         "--dry-run", action="store_true",
