@@ -434,8 +434,8 @@ def write_raw(records: dict[str, dict[date, dict[str, float]]],
         production_actuals = dict(_load_production_actuals(
             Path(production_path or DEFAULT_PRODUCTION_PATH)
         ))
-        # 전체 자동 실행에서는 DB 통합이 백그라운드라 유틸리티보다 늦게 끝난다.
-        # 방금 수집한 RawDB의 월 전체 값을 위에 덮어써 같은 달의 수정분까지 반영한다.
+        # 전체 자동 실행에서는 생산 DB 가공이 먼저 끝난다. 다만 유틸리티 RPA를
+        # 단독 실행하는 경우도 있으므로 최신 RawDB 값을 덮어써 수정분까지 보완한다.
         raw_source = (
             Path(production_raw_path) if production_raw_path is not None
             else DEFAULT_PRODUCTION_RAW_PATH if production_path is None

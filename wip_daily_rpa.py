@@ -170,6 +170,7 @@ class MISWIPRPA:
         self.dry_run = dry_run
         self.build_db = build_db
         self.coords = self._load_coords()
+        self.collection_success_count = 0
 
         self.app = None
         self.main_window = None
@@ -492,12 +493,14 @@ class MISWIPRPA:
         return True
 
     # -----------------------------------------------------------------------
-    # 전체 실행
+    # 수집 단계
     # -----------------------------------------------------------------------
-    def run(self):
+    def collect(self) -> bool:
         log.info("=" * 60)
-        log.info("MIS 재공품 RPA 시작")
+        log.info("MIS 재공품 수집 단계 시작")
         log.info("=" * 60)
+
+        self.collection_success_count = 0
 
         self.connect_mis()
         self.main_window.set_focus()
@@ -575,18 +578,31 @@ class MISWIPRPA:
             log.info(f"RPA 완료: 성공 {success} / 실패 {failed} / 총 {total_rows}행 기록")
         log.info("=" * 60)
 
-        # DB 통합 — dry-run / build_db 끔 / 성공 0건이면 생략
-        if not self.build_db:
-            log.info("DB 통합 단계 생략 (--skip-db-build)")
-            return
-        if self.dry_run:
-            log.info("DB 통합 단계 생략 (dry-run 모드)")
-            return
-        if success == 0:
-            log.warning("DB 통합 단계 생략 (Raw 단계 성공 0건)")
-            return
+        self.collection_success_count = success
+        return success > 0
 
-        self.consolidate_to_db()
+    # -----------------------------------------------------------------------
+    # 가공 단계
+    # -----------------------------------------------------------------------
+    def process_collected_data(self) -> bool:
+        if self.dry_run:
+            log.info("재공품 가공 단계 생략 (dry-run 모드)")
+            return True
+        if self.collection_success_count == 0:
+            log.error("가공할 재공품 수집 결과가 없습니다.")
+            return False
+        return self.consolidate_to_db()
+
+    # -----------------------------------------------------------------------
+    # 단독 실행 호환: 수집 후 가공
+    # -----------------------------------------------------------------------
+    def run(self) -> bool:
+        if not self.collect():
+            return False
+        if not self.build_db:
+            log.info("재공품 가공 단계 생략 (--skip-db-build)")
+            return True
+        return self.process_collected_data()
 
 
 # ---------------------------------------------------------------------------

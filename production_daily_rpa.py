@@ -45,6 +45,7 @@ import shutil
 import logging
 import argparse
 import re
+import tempfile
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
@@ -337,6 +338,8 @@ class MISProductionRPA:
         self.build_dw = build_dw
         self.dw_output = dw_output  # None → production_dw_service.DEFAULT_OUTPUT_PATH
         self.coords = self._load_coords()
+        self._pending_raw_snapshots: list[tuple[str, str, bytes]] = []
+        self.collection_success_count = 0
 
         self.app = None
         self.main_window = None
@@ -648,7 +651,7 @@ class MISProductionRPA:
     # -----------------------------------------------------------------------
     # DW 통합 (Raw_생산실적/*.xlsx → DB_생산실적.xlsx)
     # -----------------------------------------------------------------------
-    def consolidate_to_dw(self) -> bool:
+    def consolidate_to_dw(self, raw_path: str | Path | None = None) -> bool:
         """
         RawDB_생산실적.xlsx 의 카테고리 시트들을 합쳐
         DB_생산실적.xlsx (공장별 wide + 제품마스터 + 계획 + daily)로 저장한다.
@@ -657,8 +660,10 @@ class MISProductionRPA:
         DB UPSERT(production_daily)는 app 기동 시 production_dw_sync_service 가
         파일 mtime 변화를 감지해 자동 수행하므로 여기선 파일까지만.
         """
+        raw_source = str(raw_path or RAW_FILE)
         log.info("=" * 60)
         log.info("DW 통합 단계 시작 (RawDB_생산실적 → DB_생산실적.xlsx)")
+        log.info(f"  입력 Raw: {raw_source}")
         log.info("=" * 60)
         try:
             from production_builder import (
@@ -673,7 +678,7 @@ class MISProductionRPA:
         out_path = self.dw_output or str(DEFAULT_OUTPUT_PATH)
         try:
             t0 = datetime.now()
-            df, saved_path = build_dataset(raw_path=RAW_FILE, output_path=out_path)
+            df, saved_path = build_dataset(raw_path=raw_source, output_path=out_path)
             dt = (datetime.now() - t0).total_seconds()
         except Exception as exc:
             log.error(f"DW 통합 실패: {exc}", exc_info=True)
@@ -776,17 +781,20 @@ class MISProductionRPA:
         return success, failed, total_rows
 
     # -----------------------------------------------------------------------
-    # 전체 실행
+    # 수집 단계
     # -----------------------------------------------------------------------
-    def run(self):
+    def collect(self) -> bool:
         log.info("=" * 60)
-        log.info("MIS 생산실적 RPA 시작")
+        log.info("MIS 생산실적 수집 단계 시작")
         log.info("=" * 60)
+
+        self._pending_raw_snapshots = []
+        self.collection_success_count = 0
 
         targets = discover_targets(RAW_FILE)
         if not targets:
             log.error(f"작업 대상 시트가 없습니다: {RAW_FILE}")
-            return
+            return False
 
         periods = self._plan_collection_periods(targets)
 
@@ -818,21 +826,11 @@ class MISProductionRPA:
             failed += period_failed
             total_rows += period_rows
 
-            has_next_period = period_index < len(periods)
             if (
-                has_next_period
-                and not self.dry_run
+                not self.dry_run
                 and period_success > 0
             ):
-                log.info(
-                    "누락 기간 Raw 데이터 보존을 위해 현재 기간을 먼저 DW에 통합합니다."
-                )
-                if not self.consolidate_to_dw():
-                    raise RuntimeError(
-                        "누락 기간 DW 통합 실패 — Raw 덮어쓰기를 막기 위해 "
-                        "현재 월 수집을 중단합니다."
-                    )
-                    return
+                self._capture_raw_snapshot()
 
         log.info("=" * 60)
         if self.dry_run:
@@ -841,18 +839,67 @@ class MISProductionRPA:
             log.info(f"RPA 완료: 성공 {success} / 실패 {failed} / 총 {total_rows}행 기록")
         log.info("=" * 60)
 
-        # DW 통합 — dry-run/실패 전건 인 경우는 생략
-        if not self.build_dw:
-            log.info("DW 통합 단계 생략 (--skip-dw-build)")
-            return
-        if self.dry_run:
-            log.info("DW 통합 단계 생략 (dry-run 모드)")
-            return
-        if success == 0:
-            log.warning("DW 통합 단계 생략 (Raw 단계 성공 0건)")
-            return
+        self.collection_success_count = success
+        return success > 0
 
-        self.consolidate_to_dw()
+    def _capture_raw_snapshot(self) -> None:
+        """현재 월 Raw 파일을 메모리에 보존해 다음 월 수집의 덮어쓰기를 막는다."""
+        raw_path = Path(RAW_FILE)
+        if not raw_path.exists():
+            raise FileNotFoundError(f"생산실적 Raw 파일이 없습니다: {raw_path}")
+        payload = raw_path.read_bytes()
+        self._pending_raw_snapshots.append(
+            (self.start_date, self.end_date, payload)
+        )
+        log.info(
+            f"Raw 스냅샷 보관: {self.start_date} ~ {self.end_date} "
+            f"({len(payload):,} bytes)"
+        )
+
+    # -----------------------------------------------------------------------
+    # 가공 단계
+    # -----------------------------------------------------------------------
+    def process_collected_data(self) -> bool:
+        """수집 단계에서 보관한 월별 Raw를 순서대로 DW에 통합한다."""
+        if self.dry_run:
+            log.info("생산실적 가공 단계 생략 (dry-run 모드)")
+            return True
+        if not self._pending_raw_snapshots:
+            log.error("가공할 생산실적 Raw 스냅샷이 없습니다.")
+            return False
+
+        log.info("=" * 60)
+        log.info(
+            f"생산실적 가공 단계 시작 — "
+            f"{len(self._pending_raw_snapshots)}개 기간 순차 통합"
+        )
+        log.info("=" * 60)
+        with tempfile.TemporaryDirectory(prefix="production_raw_stage_") as tmp:
+            tmp_dir = Path(tmp)
+            for index, (start, end, payload) in enumerate(
+                self._pending_raw_snapshots, start=1
+            ):
+                snapshot_path = tmp_dir / f"production_raw_{index:02d}.xlsx"
+                snapshot_path.write_bytes(payload)
+                log.info(
+                    f"가공 기간 [{index}/{len(self._pending_raw_snapshots)}]: "
+                    f"{start} ~ {end}"
+                )
+                if not self.consolidate_to_dw(snapshot_path):
+                    log.error(f"생산실적 가공 실패: {start} ~ {end}")
+                    return False
+        return True
+
+    # -----------------------------------------------------------------------
+    # 단독 실행 호환: 수집 후 가공
+    # -----------------------------------------------------------------------
+    def run(self) -> bool:
+        if not self.collect():
+            return False
+        if not self.build_dw:
+            log.info("생산실적 가공 단계 생략 (--skip-dw-build)")
+            return True
+        return self.process_collected_data()
 
 
 # ---------------------------------------------------------------------------

@@ -134,6 +134,42 @@ class UtilityCollectionMonthTests(unittest.TestCase):
         self.assertFalse(rpa.auto_recover_missing_dates)
         self.assertEqual(rpa.year_months, ["2026-08"])
 
+    def test_collection_stages_months_without_writing_until_processing(self) -> None:
+        class Window:
+            def set_focus(self):
+                pass
+
+        rpa = MISUtilityRPA(
+            year_month="2026-08",
+            dry_run=False,
+            org_codes=["F20"],
+        )
+        rpa.main_window = Window()
+        month_records = {
+            "김해": {
+                date(2026, 8, 1): {"total_power_kwh": 0}
+            }
+        }
+
+        def fake_collect_months(screen, parser, months, on_month_done=None):
+            on_month_done("2026-08", month_records)
+            return month_records
+
+        with (
+            patch.object(rpa, "_validate_coords"),
+            patch.object(rpa, "connect_mis"),
+            patch.object(rpa, "collect_months", side_effect=fake_collect_months),
+            patch.object(rpa, "_backup"),
+            patch.object(utility_rpa.time, "sleep", return_value=None),
+            patch.object(energy_builder, "write_raw") as write_raw,
+        ):
+            self.assertTrue(rpa.collect())
+            write_raw.assert_not_called()
+            self.assertEqual(len(rpa.pending_month_records), 1)
+
+            self.assertTrue(rpa.process_collected_data())
+            write_raw.assert_called_once_with(month_records)
+
 
 if __name__ == "__main__":
     unittest.main()

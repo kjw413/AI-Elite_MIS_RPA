@@ -122,6 +122,8 @@ class _StubProductionRPA(MISProductionRPA):
         self.collected_periods: list[tuple[str, str]] = []
         self.consolidation_calls = 0
         self.consolidation_succeeds = consolidation_succeeds
+        self._pending_raw_snapshots = []
+        self.collection_success_count = 0
         self._set_collection_period(date(2026, 8, 1), date(2026, 8, 2))
 
     def _plan_collection_periods(self, targets):
@@ -149,13 +151,18 @@ class _StubProductionRPA(MISProductionRPA):
         self.collected_periods.append((self.start_date, self.end_date))
         return 1, 0, 1
 
-    def consolidate_to_dw(self) -> bool:
+    def _capture_raw_snapshot(self) -> None:
+        self._pending_raw_snapshots.append(
+            (self.start_date, self.end_date, self.start_date.encode())
+        )
+
+    def consolidate_to_dw(self, raw_path=None) -> bool:
         self.consolidation_calls += 1
         return self.consolidation_succeeds
 
 
 class ProductionCollectionFlowTests(unittest.TestCase):
-    def test_integrates_recovery_before_current_period_overwrites_raw(self) -> None:
+    def test_collects_all_periods_before_processing_snapshots(self) -> None:
         rpa = _StubProductionRPA()
         targets = [
             {
@@ -170,8 +177,9 @@ class ProductionCollectionFlowTests(unittest.TestCase):
             patch.object(production_rpa, "discover_targets", return_value=targets),
             patch.object(production_rpa.time, "sleep", return_value=None),
         ):
-            rpa.run()
+            collected = rpa.collect()
 
+        self.assertTrue(collected)
         self.assertEqual(
             rpa.collected_periods,
             [
@@ -179,9 +187,13 @@ class ProductionCollectionFlowTests(unittest.TestCase):
                 ("2026-08-01", "2026-08-02"),
             ],
         )
-        self.assertEqual(rpa.consolidation_calls, 1)
+        self.assertEqual(rpa.consolidation_calls, 0)
+        self.assertEqual(len(rpa._pending_raw_snapshots), 2)
 
-    def test_stops_before_overwrite_when_recovery_integration_fails(self) -> None:
+        self.assertTrue(rpa.process_collected_data())
+        self.assertEqual(rpa.consolidation_calls, 2)
+
+    def test_processing_failure_happens_after_all_collection_is_preserved(self) -> None:
         rpa = _StubProductionRPA(consolidation_succeeds=False)
         targets = [
             {
@@ -195,14 +207,18 @@ class ProductionCollectionFlowTests(unittest.TestCase):
         with (
             patch.object(production_rpa, "discover_targets", return_value=targets),
             patch.object(production_rpa.time, "sleep", return_value=None),
-            self.assertRaises(RuntimeError),
         ):
-            rpa.run()
+            self.assertTrue(rpa.collect())
 
         self.assertEqual(
             rpa.collected_periods,
-            [("2026-07-31", "2026-07-31")],
+            [
+                ("2026-07-31", "2026-07-31"),
+                ("2026-08-01", "2026-08-02"),
+            ],
         )
+        self.assertFalse(rpa.process_collected_data())
+        self.assertEqual(len(rpa._pending_raw_snapshots), 2)
 
 
 if __name__ == "__main__":

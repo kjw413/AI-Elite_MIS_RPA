@@ -7,11 +7,12 @@ MIS 3종 RPA 자동 실행 오케스트레이터 (in-process 버전).
   - MIS 연결(connect_mis)은 생산실적 단계에서만 1회 수행.
     이후 유틸리티/재공품은 그 main_window 를 attach_existing_window() 로
     재사용해 ~9초의 UIA 연결 오버헤드를 건너뛴다.
-  - DW/DB 통합은 여전히 subprocess 백그라운드(다음 UI 단계와 병렬).
+  - 1단계에서 3개 UI 수집을 모두 끝낸 뒤 2단계 통합·가공을 시작.
 
 Pipeline:
-    prod_UI ─→ util_UI ─→ wip_UI ─→ wait
-            └ prod_DW(BG)        └ wip_DB(BG)
+    [수집] production → utility → wip
+                         ↓
+    [가공] production → utility → wip
 
 Usage:
     python run_all_rpa.py [--date YYYY-MM-DD] [--dry-run]
@@ -19,9 +20,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import io
 import logging
-import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -68,54 +67,13 @@ def header(msg: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 백그라운드 잡 (DW/DB 통합 — UI 와 무관한 파일·DB I/O)
-# ---------------------------------------------------------------------------
-def start_bg(title: str, args: list[str], bg_log_path: Path):
-    log.info(f"[BG start] {title} → {bg_log_path.name}")
-    cmd = [sys.executable, "-u", *args]
-    fh = bg_log_path.open("w", encoding="utf-8")
-    fh.write(f"$ {' '.join(cmd)}\n")
-    fh.flush()
-    proc = subprocess.Popen(
-        cmd,
-        cwd=str(SCRIPT_DIR),
-        stdout=fh,
-        stderr=subprocess.STDOUT,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    )
-    return title, proc, fh
-
-
-def wait_bg(jobs: list) -> dict[str, int]:
-    results: dict[str, int] = {}
-    for title, proc, fh in jobs:
-        rc = proc.wait()
-        fh.close()
-        results[title] = rc
-        log.info(f"[BG done ] {title} 종료 (exit={rc}) — {Path(fh.name).name}")
-        bg_path = Path(fh.name)
-        if bg_path.exists():
-            try:
-                content = bg_path.read_text(encoding="utf-8", errors="replace")
-                with MAIN_LOG.open("a", encoding="utf-8") as mf:
-                    mf.write(f"\n----- BG output: {title} ({bg_path.name}) -----\n")
-                    mf.write(content)
-                    mf.write(f"----- end BG: {title} -----\n")
-            except Exception as exc:  # noqa: BLE001
-                log.warning(f"BG 로그 머지 실패: {exc}")
-    return results
-
-
-# ---------------------------------------------------------------------------
 # UI 단계 실행 헬퍼 (예외/SystemExit 모두 잡아서 rc 만 반환)
 # ---------------------------------------------------------------------------
 def _run_rpa_safe(title: str, runner) -> int:
-    """RPA 인스턴스의 run() 을 안전하게 호출. 실패해도 다음 단계 진행."""
+    """수집 또는 가공 단계 함수를 안전하게 호출. 실패해도 다음 단계 진행."""
     try:
-        runner()
-        return 0
+        result = runner()
+        return 1 if result is False else 0
     except SystemExit as exc:
         rc = int(exc.code) if isinstance(exc.code, int) else 1
         log.error(f"{title}: SystemExit (rc={rc})")
@@ -145,17 +103,19 @@ def main() -> int:
     from utility_daily_rpa import MISUtilityRPA
     from wip_daily_rpa import MISWIPRPA
 
-    bg_jobs: list = []
+    # ==========================================================
+    # 1단계: 3종 수집
+    # ==========================================================
+    header("1단계: 3종 RPA 수집 시작")
 
-    # ──────────────────────────────────────────────────────────
-    # [1/3] 생산실적 UI — MIS 연결을 실제로 수행
-    header("[1/3] 생산실적 RPA — MIS 화면 작업 (MIS 연결 1회 수행)")
+    # [수집 1/3] 생산실적 — MIS 연결을 실제로 수행
+    header("[수집 1/3] 생산실적 (MIS 연결 1회 수행)")
     prod = MISProductionRPA(
         ref_date=args.date,
         dry_run=args.dry_run,
-        build_dw=False,  # DW 통합은 아래서 BG 로 분리
+        build_dw=False,
     )
-    rc_prod_ui = _run_rpa_safe("생산실적 UI", prod.run)
+    rc_prod_collect = _run_rpa_safe("생산실적 수집", prod.collect)
 
     shared_app = getattr(prod, "app", None)
     shared_window = getattr(prod, "main_window", None)
@@ -165,60 +125,67 @@ def main() -> int:
     else:
         log.info("✓ MIS 연결 객체 확보 — 유틸리티/재공품 단계는 connect 건너뜀.")
 
-    # 생산실적 DW 통합을 BG 로 — 다음 UI 단계와 병렬
-    if rc_prod_ui == 0 and not args.dry_run:
-        bg_jobs.append(start_bg(
-            "생산실적 DW 통합",
-            ["build_production_dataset.py"],
-            LOG_DIR / f"auto_run_{STAMP}_prod_dw_bg.log",
-        ))
-        log.info("→ 생산실적 DW 통합 BG 시작.")
-    else:
-        log.info(f"[건너뜀] DW 통합 (rc={rc_prod_ui}, dry-run={args.dry_run})")
-
-    # ──────────────────────────────────────────────────────────
-    # [2/3] 유틸리티 UI — MIS 연결 재사용
-    header("[2/3] 유틸리티 RPA — MIS 화면 작업 (연결 재사용)")
+    # [수집 2/3] 유틸리티 — MIS 연결 재사용
+    header("[수집 2/3] 유틸리티 (연결 재사용)")
     # 유틸리티는 기준년월만 받으므로, 공통 기준 종료일의 YYYY-MM을 전달한다.
     # --date 미지정 때는 기존처럼 유틸리티가 D-1 기준으로 계산한다.
     utility_year_month = args.date[:7] if args.date else None
     util = MISUtilityRPA(year_month=utility_year_month, dry_run=args.dry_run)
     if can_share:
         util.attach_existing_window(shared_app, shared_window)
-    rc_util = _run_rpa_safe("유틸리티", util.run)
+    rc_util_collect = _run_rpa_safe("유틸리티 수집", util.collect)
 
-    # ──────────────────────────────────────────────────────────
-    # [3/3] 재공품 UI — MIS 연결 재사용
-    header("[3/3] 재공품 RPA — MIS 화면 작업 (연결 재사용)")
+    # [수집 3/3] 재공품 — MIS 연결 재사용
+    header("[수집 3/3] 재공품 (연결 재사용)")
     wip = MISWIPRPA(
         ref_date=args.date,
         dry_run=args.dry_run,
-        build_db=False,  # DB 통합은 아래서 BG 로 분리
+        build_db=False,
     )
     if can_share:
         wip.attach_existing_window(shared_app, shared_window)
-    rc_wip_ui = _run_rpa_safe("재공품 UI", wip.run)
+    rc_wip_collect = _run_rpa_safe("재공품 수집", wip.collect)
 
-    if rc_wip_ui == 0 and not args.dry_run:
-        wip_ref_script = SCRIPT_DIR / "wip_refactoring.py"
-        bg_jobs.append(start_bg(
-            "재공품 DB 통합",
-            [str(wip_ref_script)],
-            LOG_DIR / f"auto_run_{STAMP}_wip_db_bg.log",
-        ))
-        log.info("→ 재공품 DB 통합 BG 시작.")
+    header("1단계 완료: 3종 RPA 수집 시도 종료")
+
+    # ==========================================================
+    # 2단계: 통합 및 가공
+    # ==========================================================
+    rc_prod_process = None
+    rc_util_process = None
+    rc_wip_process = None
+
+    if args.dry_run:
+        header("2단계 생략: dry-run 모드")
     else:
-        log.info(f"[건너뜀] DB 통합 (rc={rc_wip_ui}, dry-run={args.dry_run})")
+        header("2단계: 통합 및 가공 시작")
 
-    # ──────────────────────────────────────────────────────────
-    # BG 완료 대기
-    rc_prod_dw = None
-    rc_wip_db = None
-    if bg_jobs:
-        header("백그라운드 통합 작업 완료 대기...")
-        results = wait_bg(bg_jobs)
-        rc_prod_dw = results.get("생산실적 DW 통합")
-        rc_wip_db = results.get("재공품 DB 통합")
+        if rc_prod_collect == 0:
+            header("[가공 1/3] 생산실적 DW 통합")
+            rc_prod_process = _run_rpa_safe(
+                "생산실적 가공", prod.process_collected_data
+            )
+        else:
+            log.error("[가공 생략] 생산실적 수집 실패")
+
+        # 유틸리티 원단위 가공은 최신 생산실적을 사용하므로 생산 가공 성공이 선행 조건.
+        if rc_util_collect == 0 and rc_prod_process == 0:
+            header("[가공 2/3] 유틸리티 적재 및 원단위 가공")
+            rc_util_process = _run_rpa_safe(
+                "유틸리티 가공", util.process_collected_data
+            )
+        elif rc_util_collect != 0:
+            log.error("[가공 생략] 유틸리티 수집 실패")
+        else:
+            log.error("[가공 생략] 생산실적 가공 실패로 유틸리티 의존성 미충족")
+
+        if rc_wip_collect == 0:
+            header("[가공 3/3] 재공품 DB 통합")
+            rc_wip_process = _run_rpa_safe(
+                "재공품 가공", wip.process_collected_data
+            )
+        else:
+            log.error("[가공 생략] 재공품 수집 실패")
 
     # ──────────────────────────────────────────────────────────
     # 요약
@@ -228,18 +195,26 @@ def main() -> int:
     summary = (
         "\n============================================================\n"
         "  실행 결과 요약  [0 = 성공]\n"
-        f"    [1] 생산실적 UI       : {rc_prod_ui}\n"
-        f"    [2] 유틸리티          : {rc_util}\n"
-        f"    [3] 재공품 UI         : {rc_wip_ui}\n"
-        f"    [BG] 생산실적 DW 통합 : {_fmt(rc_prod_dw)}\n"
-        f"    [BG] 재공품 DB 통합   : {_fmt(rc_wip_db)}\n"
+        f"    [수집 1] 생산실적     : {rc_prod_collect}\n"
+        f"    [수집 2] 유틸리티     : {rc_util_collect}\n"
+        f"    [수집 3] 재공품       : {rc_wip_collect}\n"
+        f"    [가공 1] 생산실적     : {_fmt(rc_prod_process)}\n"
+        f"    [가공 2] 유틸리티     : {_fmt(rc_util_process)}\n"
+        f"    [가공 3] 재공품       : {_fmt(rc_wip_process)}\n"
         f"  종료: {datetime.now():%Y-%m-%d %H:%M:%S}\n"
         f"  로그: {MAIN_LOG}\n"
         "============================================================\n"
     )
     log.info(summary)
 
-    all_rcs = [rc_prod_ui, rc_util, rc_wip_ui, rc_prod_dw, rc_wip_db]
+    all_rcs = [
+        rc_prod_collect,
+        rc_util_collect,
+        rc_wip_collect,
+        rc_prod_process,
+        rc_util_process,
+        rc_wip_process,
+    ]
     return 1 if any(isinstance(rc, int) and rc != 0 for rc in all_rcs) else 0
 
 

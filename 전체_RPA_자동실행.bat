@@ -5,9 +5,8 @@ REM ============================================================
 REM  MIS 3-RPA full auto-run wrapper (calls run_all_rpa.py)
 REM
 REM  Pipeline:
-REM    production UI -> utility UI -> wip UI -> wait
-REM                  \                       \
-REM                   production DW (BG)      wip DB (BG)
+REM    [Collect] production -> utility -> wip
+REM    [Process] production -> utility -> wip
 REM
 REM  Real-time progress is printed to the console and mirrored
 REM  to logs\auto_run_*.log. Per-RPA detail logs remain in logs\.
