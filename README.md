@@ -68,28 +68,28 @@ BEMS 웹앱(`AI-Elite_Energy-Dashboard-Web`)에서 분리된 독립 프로젝트
 ## 구조
 
 ```
-AI-Elite_AI-Elite-MIS_RPA/
-├── AI-Elite-MIS_RPA/
-│   ├── config.py               # DB_MIS_DIR 경로 해석 (.env)
-│   ├── factories.py            # 공장 코드/도메인 상수
-│   ├── production_builder.py   # RawDB_생산실적 → DB_생산실적 재가공 (build_dataset 등)
-│   ├── energy_builder.py       # 에너지 항목 스키마 + RawDB_에너지 적재/읽기
-│   ├── wip_refactoring.py      # RawDB_재공품 → DB_재공품 재가공
-│   ├── _common.py              # 클립보드/윈도우/atomic-save 공통 헬퍼
-│   ├── production_daily_rpa.py # 생산실적 수집 RPA
-│   ├── utility_daily_rpa.py    # 에너지 수집 RPA — 원단위 실적입력 화면, 일일/과거 겸용
-│   ├── wip_daily_rpa.py        # 재공품 수집 RPA
-│   ├── build_production_dataset.py  # 생산실적 재가공 CLI
-│   ├── run_all_rpa.py          # 3종 RPA 오케스트레이터
-│   ├── *_coords.json           # MIS 화면 좌표
-│   └── *.bat                   # 실행 래퍼
+AI-Elite-MIS_RPA/
+├── config.py               # DB_MIS_DIR 경로 해석 (.env)
+├── factories.py            # 공장 코드/도메인 상수
+├── production_builder.py   # RawDB_생산실적 → DB_생산실적 재가공 (build_dataset 등)
+├── energy_builder.py       # 에너지 항목 스키마 + RawDB_에너지 적재/읽기
+├── wip_refactoring.py      # RawDB_재공품 → DB_재공품 재가공
+├── _common.py              # 클립보드/윈도우/atomic-save 공통 헬퍼
+├── production_daily_rpa.py # 생산실적 수집 RPA
+├── utility_daily_rpa.py    # 에너지 수집 RPA — 원단위 실적입력 화면, 일일/과거 겸용
+├── wip_daily_rpa.py        # 재공품 수집 RPA
+├── build_production_dataset.py  # 생산실적 재가공 CLI
+├── run_all_rpa.py          # 3종 RPA 오케스트레이터
+├── *_coords.json           # MIS 화면 좌표
+├── *.bat                   # 실행 래퍼
 └── utils/                      # 좌표 측정/클릭 기록 도우미
+
 ```
 
 ## 설치
 
 ```bat
-cd /d E:\AI-Elite_AI-Elite-MIS_RPA
+cd /d E:\AI-Elite-MIS_RPA
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
