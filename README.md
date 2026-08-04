@@ -107,7 +107,7 @@ REM 개별 실행
 python AI-Elite-MIS_RPA\run_all_rpa.py --date 2026-06-30
 python AI-Elite-MIS_RPA\build_production_dataset.py      # 생산실적 재가공만
 
-REM 에너지 — 일일 수집 (기본: D-1 기준월)
+REM 에너지 — 일일 수집 (기본: D-1 기준월 + 직전 누락 자동 복구)
 AI-Elite-MIS_RPA\유틸리티_RPA_실행.bat
 python AI-Elite-MIS_RPA\utility_daily_rpa.py --ym 2026-07
 python AI-Elite-MIS_RPA\utility_daily_rpa.py --dry-run    # MIS 조회만, 엑셀 미기록

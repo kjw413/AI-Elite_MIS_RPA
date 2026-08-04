@@ -1,5 +1,5 @@
 @REM MIS energy (utility) RPA launcher - unit-input screen
-@REM   No args  : collect previous day's month (daily run)
+@REM   No args  : collect previous day's month + recover missing previous date
 @REM   With args: passed straight through, e.g. --from 2024-01 --to 2026-06
 @echo off
 setlocal enabledelayedexpansion
@@ -27,14 +27,14 @@ if not "%~1"=="" (
     goto :done
 )
 
-echo Leave the start month blank for the daily run ^(previous day's month^).
+echo Leave the start month blank for the daily run ^(with missing-date recovery^).
 set "YM_FROM="
 set "YM_TO="
 set /p YM_FROM=Start month for past collection (YYYY-MM, blank = daily run):
 
 if "!YM_FROM!"=="" (
     echo.
-    echo [START] Daily run - previous day's month...
+    echo [START] Daily run - previous day's month + missing-date recovery...
     python utility_daily_rpa.py
     goto :done
 )

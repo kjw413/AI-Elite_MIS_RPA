@@ -29,7 +29,7 @@ RPA 적재 시 빈 수식을 자동 채운 뒤 Excel에서 전체 재계산·저
 여러 달을 돌 때는 매달 수집 직후 적재하므로(월 단위 체크포인트) 중단돼도 앞선 달은 남는다.
 
 Usage:
-  python utility_daily_rpa.py                          # 기본: D-1 기준월
+  python utility_daily_rpa.py                          # D-1 기준월 + 직전 누락 자동 복구
   python utility_daily_rpa.py --ym 2026-07             # 특정 월 1개
   python utility_daily_rpa.py --dry-run                # MIS 조회만, 엑셀 미기록
   python utility_daily_rpa.py --factories 논산,경산       # 특정 사업장만
@@ -180,6 +180,61 @@ def month_range(start: str, end: str) -> list[str]:
         out.append(f"{year:04d}-{month:02d}")
         year, month = (year + 1, 1) if month == 12 else (year, month + 1)
     return out
+
+
+UTILITY_INPUT_FIELD_KEYS = {
+    field.key for field in energy_builder.FIELDS if field.source == "unit_input"
+}
+
+
+def load_utility_collected_dates(
+    raw_path: str | Path,
+    sheet_names: list[str],
+) -> dict[str, set[date]]:
+    """사업장별로 MIS 유틸리티 원본 값이 실제 적재된 날짜를 읽는다.
+
+    믹스생산량이나 원단위 수식만 있는 행은 수집 완료로 보지 않는다. 반면
+    유틸리티 원본 값 0은 정상적인 실적이므로 완료 날짜에 포함한다.
+    """
+    path = Path(raw_path)
+    if not path.exists():
+        return {}
+
+    try:
+        existing = energy_builder.read_raw(path)
+    except Exception as exc:
+        log.warning(f"유틸리티 수집 이력 확인 실패({path}): {exc}")
+        return {}
+
+    result: dict[str, set[date]] = {}
+    for sheet_name in sheet_names:
+        by_date = existing.get(sheet_name) or {}
+        result[sheet_name] = {
+            day
+            for day, values in by_date.items()
+            if any(key in values for key in UTILITY_INPUT_FIELD_KEYS)
+        }
+    return result
+
+
+def plan_utility_collection_months(
+    end_date: date,
+    collected_dates_by_sheet: dict[str, set[date]],
+) -> list[str]:
+    """직전 수집일 누락 여부에 따라 이전 월과 현재 월 수집 순서를 만든다."""
+    current_month = end_date.strftime("%Y-%m")
+    if not collected_dates_by_sheet or not any(collected_dates_by_sheet.values()):
+        return [current_month]
+
+    current_month_start = end_date.replace(day=1)
+    previous_day = current_month_start - timedelta(days=1)
+    if all(
+        previous_day in dates
+        for dates in collected_dates_by_sheet.values()
+    ):
+        return [current_month]
+
+    return [previous_day.strftime("%Y-%m"), current_month]
 
 
 def _already_collected(year_month: str, sheet_names: list[str],
@@ -500,18 +555,44 @@ class MISUtilityRPA:
     def __init__(self, year_month: str = None, dry_run: bool = False,
                  org_codes: list[str] | None = None,
                  year_months: list[str] | None = None):
-        if year_month is None:
-            ref_date = datetime.now() - timedelta(days=1)
-            self.year_month = ref_date.strftime("%Y-%m")
-        else:
-            self.year_month = year_month
-        # 순회할 기준년월 — 여러 달을 주면 과거 데이터 수집(백필)이 된다.
-        # 화면은 한 번만 열고 기준년월만 바꿔 가며 돌기 때문에 일일 수집과
-        # 경로가 완전히 같다 (달 수만 다르다).
-        self.year_months = list(year_months) if year_months else [self.year_month]
         self.dry_run = dry_run
         # 순회할 사업장 — None 이면 전체 (백필 시 일부만 재수집하는 용도)
         self.org_codes = list(org_codes) if org_codes else list(FACTORY_SHEET_MAP)
+        self.auto_recover_missing_dates = year_month is None and not year_months
+
+        if self.auto_recover_missing_dates:
+            end_date = (datetime.now() - timedelta(days=1)).date()
+            self.year_month = end_date.strftime("%Y-%m")
+            sheet_names = [FACTORY_SHEET_MAP[code] for code in self.org_codes]
+            collected = load_utility_collected_dates(
+                energy_builder.DEFAULT_RAW_PATH, sheet_names
+            )
+            self.year_months = plan_utility_collection_months(end_date, collected)
+
+            if len(self.year_months) > 1:
+                previous_day = end_date.replace(day=1) - timedelta(days=1)
+                missing_sheets = [
+                    name
+                    for name, dates in collected.items()
+                    if previous_day not in dates
+                ]
+                log.warning(
+                    f"이전 유틸리티 수집 누락 감지: {previous_day} "
+                    f"(사업장 {len(missing_sheets)}개) → "
+                    f"{self.year_months[0]} 먼저 재수집"
+                )
+            elif collected and any(collected.values()):
+                previous_day = end_date.replace(day=1) - timedelta(days=1)
+                log.info(f"이전 유틸리티 수집일 확인 완료: {previous_day} 누락 없음")
+            else:
+                log.info("기존 유틸리티 수집 이력이 없어 현재 월만 수집합니다.")
+        else:
+            # 명시된 월/백필 범위에는 자동 복구 월을 섞지 않는다.
+            self.year_months = (
+                list(year_months) if year_months else [str(year_month)]
+            )
+            self.year_month = year_month or self.year_months[-1]
+
         # 좌표 오류로 직전 공장 그리드를 재복사한 사례 — (화면, 년월, 공장, 원본공장)
         self.duplicate_grids: list[tuple[str, str, str, str]] = []
 
@@ -951,7 +1032,7 @@ def main():
     )
     parser.add_argument(
         "--from", dest="ym_from", default=None,
-        help="시작 기준년월 (YYYY-MM). 과거 데이터 수집 — --ym 대신 사용"
+        help="시작 기준년월 (YYYY-MM). 과거 데이터 수집 - --ym 대신 사용"
     )
     parser.add_argument(
         "--to", dest="ym_to", default=None,
@@ -997,7 +1078,9 @@ def main():
     else:
         # ── 일일 수집: 1개월 ──
         _setup_logging()
-        months = [args.ym] if args.ym else [default_to]
+        # 미지정 자동 실행은 RPA 초기화 시 직전 누락 여부를 확인해 이전 월을
+        # 앞에 추가한다. --ym 명시 실행에는 자동 복구를 섞지 않는다.
+        months = [args.ym] if args.ym else None
 
     rpa = MISUtilityRPA(dry_run=args.dry_run, org_codes=org_codes,
                         year_months=months)
