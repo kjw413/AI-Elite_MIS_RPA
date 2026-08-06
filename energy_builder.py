@@ -30,6 +30,7 @@ MIS '원단위 실적입력(일단위)' 화면에서 수집한 에너지 실적�
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -155,6 +156,23 @@ def _date_key(value) -> str | None:
         except ValueError:
             continue
     return text
+
+
+def _as_date(value) -> date | None:
+    """셀 값을 date 로 변환한다 (기간 필터 비교용). 날짜가 아니면 None."""
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    text = str(value).strip().lstrip("'") if value is not None else ""
+    if not text:
+        return None
+    for fmt in ("%Y-%m-%d", "%y-%m-%d", "%Y/%m/%d", "%y/%m/%d"):
+        try:
+            return datetime.strptime(text, fmt).date()
+        except ValueError:
+            continue
+    return None
 
 
 def _fill_internal_zero_days(actuals: dict[tuple[str, str], float]) -> None:
@@ -410,6 +428,173 @@ def _recalculate_with_excel(raw_path: Path) -> bool:
         pythoncom.CoUninitialize()
 
 
+def merge_production_actuals(
+    production_path: Path | None = None,
+    production_raw_path: Path | None = None,
+) -> dict[tuple[str, str], float]:
+    """믹스생산량의 권위 값 {(공장코드, 'YY-MM-DD'): kg} 을 만든다.
+
+    기본은 `DB_생산실적.xlsx`(가공 완료본) 이고, 그 위에 `RawDB_생산실적.xlsx`(최신
+    수집분)를 덮어써 방금 수집·수정한 달을 반영한다. 수집과 가공이 분리돼 있어도
+    두 경로가 같은 규칙을 쓰도록 한 곳에 모아 둔다.
+
+    production_path 만 지정하면(테스트 등) 최신 RawDB 는 섞지 않는다.
+    """
+    actuals = dict(_load_production_actuals(
+        Path(production_path or DEFAULT_PRODUCTION_PATH)
+    ))
+    raw_source = (
+        Path(production_raw_path) if production_raw_path is not None
+        else DEFAULT_PRODUCTION_RAW_PATH if production_path is None
+        else None
+    )
+    if raw_source is not None:
+        actuals.update(_load_raw_production_actuals(raw_source))
+    return actuals
+
+
+def resolve_sheet_names(spec: str | None) -> list[str]:
+    """'김해,F50' → ['김해', '경산']. 공장명·공장코드를 모두 받는다.
+
+    MIS ORG 코드(F1A 등)가 아니라 `factories.FACTORY_MASTER` 의 f_code 를 쓴다 —
+    이 모듈은 MIS 화면을 건드리지 않고 엑셀만 다루기 때문이다.
+    """
+    if not spec:
+        return list(FACTORY_SHEETS)
+
+    by_code = {code: name for name, code in FACTORY_KR_TO_CODE.items()}
+    selected: set[str] = set()
+    unknown: list[str] = []
+    for token in spec.split(","):
+        token = token.strip()
+        if not token:
+            continue
+        if token in FACTORY_KR_TO_CODE:
+            selected.add(token)
+        elif token.upper() in by_code:
+            selected.add(by_code[token.upper()])
+        else:
+            unknown.append(token)
+
+    if unknown:
+        raise SystemExit(
+            f"알 수 없는 사업장: {unknown}\n"
+            "  공장명 또는 공장코드를 쓰세요 — "
+            + ", ".join(f"{n}={c}" for n, c in FACTORY_KR_TO_CODE.items())
+        )
+    if not selected:
+        raise SystemExit("--factories 에 사업장이 하나도 지정되지 않았습니다.")
+    return [name for name in FACTORY_SHEETS if name in selected]
+
+
+def resync_production(
+    raw_path: Path | None = None, *,
+    date_from: date | None = None,
+    date_to: date | None = None,
+    sheet_names: Sequence[str] | None = None,
+    production_path: Path | None = None,
+    production_raw_path: Path | None = None,
+    recalculate: bool = True,
+    dry_run: bool = False,
+) -> tuple[dict[str, dict[str, int]], list[tuple[str, date, float | None, float]]]:
+    """MIS 접속 없이 `RawDB_에너지.xlsx` 의 믹스생산량만 생산실적으로 다시 맞춘다.
+
+    수집(MIS 클릭)과 가공(엑셀 재집계)을 분리하기 위한 진입점. 생산실적이 늦게
+    입력돼 수집 시점에 0 이 박혔거나, 구 '유틸리티 일자별' 화면 값이 남아 있는
+    행을 사후에 정정할 때 쓴다. 사용량·단가·비용 열은 건드리지 않는다.
+
+    Args:
+        date_from/date_to: 대상 날짜 범위 (None 이면 무제한)
+        sheet_names: 대상 시트. None 이면 전체
+        dry_run: 파일을 저장하지 않고 변경 예정만 돌려준다
+
+    Returns:
+        (시트별 통계, 변경 목록[(시트, 날짜, 이전값, 새값)])
+    """
+    raw_path = Path(raw_path or DEFAULT_RAW_PATH)
+    if not raw_path.exists():
+        raise FileNotFoundError(f"RawDB 파일이 없습니다: {raw_path}")
+
+    actuals = merge_production_actuals(production_path, production_raw_path)
+    targets = set(sheet_names) if sheet_names else None
+    mix_col = _raw_column("mix_prod_kg")
+
+    wb = openpyxl.load_workbook(raw_path)   # 원단위 수식 보존 (data_only=False)
+    stats: dict[str, dict[str, int]] = {}
+    changes: list[tuple[str, date, float | None, float]] = []
+    try:
+        for sheet_name in wb.sheetnames:
+            factory_code = FACTORY_KR_TO_CODE.get(sheet_name)
+            if factory_code is None:
+                continue
+            if targets is not None and sheet_name not in targets:
+                continue
+
+            ws = wb[sheet_name]
+            updated = unchanged = missing = 0
+            touched_rows: set[int] = set()
+            for row_idx in range(2, ws.max_row + 1):
+                day = _as_date(ws.cell(row=row_idx, column=1).value)
+                if day is None:
+                    continue
+                if date_from and day < date_from:
+                    continue
+                if date_to and day > date_to:
+                    continue
+
+                want = actuals.get((factory_code, _date_key(day)))
+                if want is None:
+                    # 생산실적이 아직 없는 날 — 기존 값을 지우지 않고 남겨 둔다
+                    missing += 1
+                    continue
+
+                cell = ws.cell(row=row_idx, column=mix_col)
+                current = cell.value
+                current_num = float(current) if isinstance(current, (int, float)) else None
+                if current_num is not None and abs(current_num - want) <= 0.5:
+                    unchanged += 1
+                else:
+                    changes.append((sheet_name, day, current_num, want))
+                    if not dry_run:
+                        cell.value = want
+                    updated += 1
+                touched_rows.add(row_idx)
+
+            if not dry_run and touched_rows:
+                formula_cnt = _ensure_unit_formulas(ws, touched_rows)
+                if formula_cnt:
+                    log.info(f"  [{sheet_name}] 원단위 수식 {formula_cnt}셀 보완")
+
+            stats[sheet_name] = {
+                "updated": updated, "unchanged": unchanged, "missing": missing,
+            }
+            log.info(f"  [{sheet_name}] 갱신 {updated} / 동일 {unchanged} / "
+                     f"생산실적 없음 {missing}")
+
+        if dry_run:
+            return stats, changes
+
+        if not changes:
+            log.info("변경할 값이 없어 파일을 저장하지 않습니다.")
+            return stats, changes
+
+        wb.calculation.calcMode = "auto"
+        wb.calculation.fullCalcOnLoad = True
+        wb.calculation.forceFullCalc = True
+        wb.calculation.calcOnSave = True
+        atomic_save_workbook(wb, str(raw_path))
+    finally:
+        wb.close()
+
+    if recalculate and not _recalculate_with_excel(raw_path):
+        raise RuntimeError(
+            "RawDB 저장은 완료됐지만 Excel 수식 재계산에 실패했습니다. "
+            "파일 잠금과 Excel 설치 상태를 확인하세요."
+        )
+    log.info(f"RawDB 생산량 재집계 완료: {raw_path}  ({len(changes)}셀 변경)")
+    return stats, changes
+
+
 def write_raw(records: dict[str, dict[date, dict[str, float]]],
               raw_path: Path | None = None, *,
               production_path: Path | None = None,
@@ -431,18 +616,9 @@ def write_raw(records: dict[str, dict[date, dict[str, float]]],
 
     production_actuals: dict[tuple[str, str], float] | None = None
     if sync_production:
-        production_actuals = dict(_load_production_actuals(
-            Path(production_path or DEFAULT_PRODUCTION_PATH)
-        ))
-        # 전체 자동 실행에서는 생산 DB 가공이 먼저 끝난다. 다만 유틸리티 RPA를
-        # 단독 실행하는 경우도 있으므로 최신 RawDB 값을 덮어써 수정분까지 보완한다.
-        raw_source = (
-            Path(production_raw_path) if production_raw_path is not None
-            else DEFAULT_PRODUCTION_RAW_PATH if production_path is None
-            else None
+        production_actuals = merge_production_actuals(
+            production_path, production_raw_path
         )
-        if raw_source is not None:
-            production_actuals.update(_load_raw_production_actuals(raw_source))
 
         missing_production: list[str] = []
         for sheet_name, by_date in records.items():

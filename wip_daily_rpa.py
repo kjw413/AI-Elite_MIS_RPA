@@ -26,7 +26,7 @@ E:\\DB_MIS\\RawDB_재공품.xlsx 의 기존 시트(남양주1/남양주2/김해/
      d. 확인 팝업 Enter
      e. RawDB_재공품.xlsx 의 매핑된 기존 시트 데이터 클리어 후 통째 paste
   8. (자동 연결) RawDB_재공품.xlsx → DB_재공품.xlsx 통합
-     - tools.scripts.WIP_refactoring.main() 호출
+     - wip_refactoring.run_refactoring() 호출 (main() 은 CLI 전용 argparse 진입점)
      - WIP_refactoring 가 ItemCode 기반으로 F10A/F10B 분리, 연속 날짜 보정, 출력 백업까지 처리
 
 Usage:
@@ -468,7 +468,7 @@ class MISWIPRPA:
         """
         RawDB_재공품.xlsx → DB_재공품.xlsx 통합.
 
-        tools.scripts.WIP_refactoring.main() 을 그대로 호출 — 빌드 로직은 한 곳에서 관리.
+        wip_refactoring.run_refactoring() 을 호출 — 빌드 로직은 한 곳에서 관리.
         WIP_refactoring가 자체적으로 출력 백업 + 시트별(남양주1/2, 김해, 광주, 논산) 처리.
         """
         log.info("=" * 60)
@@ -482,7 +482,9 @@ class MISWIPRPA:
 
         try:
             t0 = datetime.now()
-            WIP_refactoring.main()
+            # main() 이 아니라 run_refactoring() — main() 은 argparse 진입점이라
+            # 호출하면 이 스크립트의 sys.argv 를 파싱해 버린다.
+            WIP_refactoring.run_refactoring()
             dt = (datetime.now() - t0).total_seconds()
         except Exception as exc:
             log.error(f"DB 통합 실패: {exc}", exc_info=True)
@@ -623,15 +625,17 @@ def main():
         help="MIS 조회만 실행, Excel 기록하지 않음 (DB 통합도 생략)"
     )
     parser.add_argument(
-        "--skip-db-build", action="store_true",
-        help="Raw 샘플링만 수행하고 DB_재공품.xlsx 통합 단계는 생략"
+        # 3종 RPA 가 같은 이름을 쓰도록 --skip-build 로 통일. 구 이름은 별칭 유지.
+        "--skip-build", "--skip-db-build", dest="skip_build", action="store_true",
+        help="MIS 수집만 하고 DB_재공품.xlsx 통합(가공)은 생략 "
+             "(가공은 wip_refactoring.py 로 별도 수행)"
     )
     args = parser.parse_args()
 
     rpa = MISWIPRPA(
         ref_date=args.date,
         dry_run=args.dry_run,
-        build_db=not args.skip_db_build,
+        build_db=not args.skip_build,
     )
     rpa.run()
 

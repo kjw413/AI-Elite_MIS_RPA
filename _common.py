@@ -5,15 +5,23 @@ MIS RPA 스크립트들이 공유하는 헬퍼:
   - parse_clipboard_rows : 클립보드 텍스트 → 2D 리스트 (TAB/COMMA 자동 감지)
   - coerce_value         : 문자열 → 숫자 자동 변환 (천단위 쉼표 허용)
   - paste_to_sheet       : 워크북의 특정 시트에 통째 paste (기존 데이터 클리어 후 교체)
+  - parse_year_month     : 'YYYY-MM' 파싱 (CLI 기간 인자 공통)
+  - month_range          : 'YYYY-MM' ~ 'YYYY-MM' → 월 리스트
+  - month_bounds         : 'YYYY-MM' ~ 'YYYY-MM' → (시작일, 종료일)
+
+pywinauto 는 fast_click 안에서만 import 한다 — 가공 전용 모듈
+(build_energy_dataset 등)이 이 모듈을 써도 GUI 의존성을 끌고 오지 않도록.
 """
 from __future__ import annotations
 
+import calendar
 import csv
 import io
 import logging
 import os
 import sys
 import time
+from datetime import date
 from pathlib import Path
 
 import openpyxl
@@ -30,6 +38,49 @@ from config import sampled_db_path_str
 def sampled_db_path(filename: str, env_name: str) -> str:
     """Return a source workbook path, allowing .env to override the default sampled DB dir."""
     return sampled_db_path_str(filename, env_name)
+
+
+# ---------------------------------------------------------------------------
+# 기간 인자 파싱 — 수집/가공 CLI 가 같은 문법(YYYY-MM)을 쓰도록 공통화
+# ---------------------------------------------------------------------------
+def parse_year_month(text: str) -> tuple[int, int]:
+    """'2024-01' → (2024, 1). 형식이 틀리면 SystemExit."""
+    try:
+        year_text, month_text = str(text).strip().split("-")
+        year, month = int(year_text), int(month_text)
+        if not 1 <= month <= 12:
+            raise ValueError
+        return year, month
+    except ValueError:
+        raise SystemExit(f"기준년월 형식이 잘못됐습니다: '{text}' (예: 2024-01)")
+
+
+def month_range(start: str, end: str) -> list[str]:
+    """'2024-01' ~ '2024-03' → ['2024-01', '2024-02', '2024-03']"""
+    y0, m0 = parse_year_month(start)
+    y1, m1 = parse_year_month(end)
+    if (y0, m0) > (y1, m1):
+        raise SystemExit(f"시작({start}) 이 종료({end}) 보다 늦습니다.")
+    out: list[str] = []
+    year, month = y0, m0
+    while (year, month) <= (y1, m1):
+        out.append(f"{year:04d}-{month:02d}")
+        year, month = (year + 1, 1) if month == 12 else (year, month + 1)
+    return out
+
+
+def month_bounds(start: str | None, end: str | None) -> tuple[date | None, date | None]:
+    """'YYYY-MM' 기간을 (시작일, 말일) 로 바꾼다. None 은 무제한."""
+    date_from = date_to = None
+    if start:
+        y, m = parse_year_month(start)
+        date_from = date(y, m, 1)
+    if end:
+        y, m = parse_year_month(end)
+        date_to = date(y, m, calendar.monthrange(y, m)[1])
+    if date_from and date_to and date_from > date_to:
+        raise SystemExit(f"시작({start}) 이 종료({end}) 보다 늦습니다.")
+    return date_from, date_to
 
 
 # ---------------------------------------------------------------------------

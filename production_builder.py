@@ -1327,15 +1327,20 @@ def build_dataset(
     raw_path: Path | str | None = None,
     output_path: Path | str | None = None,
     src_folder: Path | str | None = None,
+    dry_run: bool = False,
 ) -> tuple[pd.DataFrame, Path]:
     """Raw 파일 → DB 파일 빌드 → (daily DataFrame, 출력 경로) 반환.
 
     - 신구조(기본): build_dataset(raw_path=..., output_path=...)
     - 레거시 폴더: build_dataset(src_folder=...) → 구버전 폴더 통합(consolidate_folder)
       (migrate_f10_legacy.py 등 기존 호출 호환)
+    - dry_run=True: 기존 DB 병합까지 그대로 수행하고 저장만 생략 (미리보기)
     """
     if src_folder is not None:
         df = consolidate_folder(src_folder)
+        if dry_run:
+            logger.info("DRY-RUN — 폴더 통합 결과를 저장하지 않습니다.")
+            return df, Path(output_path) if output_path else DEFAULT_OUTPUT_PATH
         out_path = save_consolidated(df, output_path)
         return df, out_path
 
@@ -1356,6 +1361,12 @@ def build_dataset(
 
     # 품목군 정의: 이번 회차 RawDB ∪ 기존 DB 시트(이력 보존)
     groups = merge_group_defs(load_product_groups(raw), load_product_groups(existing_source))
+    if dry_run:
+        # 기존 DB 를 그대로 읽어 병합까지 수행했으므로 daily_df 는 실제 결과와 같다.
+        # 저장만 건너뛴다 — 임시 경로로 우회하면 _load_existing_* 이 빈 이력을 읽어
+        # 미리보기가 틀려진다.
+        logger.info("DRY-RUN — 병합까지 수행하고 저장은 생략합니다: %s", out)
+        return daily_df, out
     save_db_file(master_df, plan_df, daily_df, out, groups=groups)
     return daily_df, out
 

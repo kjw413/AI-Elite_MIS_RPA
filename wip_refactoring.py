@@ -652,25 +652,46 @@ def save_to_excel(sheet_df_map: Dict[str, pd.DataFrame], output_file: str):
 # 9) 메인
 # =========================================================
 
-def main():
+def run_refactoring(
+    input_file: str | None = None,
+    output_file: str | None = None,
+    plants: List[str] | None = None,
+    dry_run: bool = False,
+) -> Dict[str, pd.DataFrame]:
+    """RawDB_재공품 → DB_재공품 가공을 수행한다 (인자 파싱 없음).
+
+    `wip_daily_rpa` 의 가공 단계와 CLI(main) 가 함께 쓰는 진입점. main() 이
+    argparse 를 쓰므로, 다른 스크립트에서 호출할 때는 반드시 이 함수를 쓴다
+    (main() 을 호출하면 호출자의 sys.argv 를 파싱해 버린다).
+
+    Args:
+        plants: 처리할 공장 코드. None 이면 PLANTS 전체
+        dry_run: 출력 파일을 쓰지 않고 결과 요약만 돌려준다
+
+    Returns: { 출력시트명: DataFrame }
+    """
+    input_file = input_file or INPUT_FILE
+    output_file = output_file or OUTPUT_FILE
+    plants = list(plants) if plants else list(PLANTS)
+
     log("===== 일일 재공품 실적 정리 시작 (멀티 공장) =====")
 
-    validate_file_exists(INPUT_FILE)
+    validate_file_exists(input_file)
     validate_configuration()
 
-    input_sheet_names = get_excel_sheet_names(INPUT_FILE)
-    output_sheet_names = get_excel_sheet_names(OUTPUT_FILE) if os.path.exists(OUTPUT_FILE) else []
+    input_sheet_names = get_excel_sheet_names(input_file)
+    output_sheet_names = get_excel_sheet_names(output_file) if os.path.exists(output_file) else []
 
     final_by_sheet: Dict[str, pd.DataFrame] = {}
     summary_rows: List[Tuple[str, str, int, pd.Timestamp, pd.Timestamp, int, object, object]] = []
 
-    for plant in PLANTS:
+    for plant in plants:
         input_sheet = resolve_input_sheet_name(plant, input_sheet_names)
         output_sheet = OUTPUT_SHEET_BY_PLANT[plant]
         existing_sheet = resolve_existing_output_sheet_name(plant, output_sheet_names)
 
-        raw_df = load_raw_data(INPUT_FILE, input_sheet, plant)
-        existing_itemcodes = load_existing_itemcodes(OUTPUT_FILE, existing_sheet, plant)
+        raw_df = load_raw_data(input_file, input_sheet, plant)
+        existing_itemcodes = load_existing_itemcodes(output_file, existing_sheet, plant)
         itemcodes = resolve_target_itemcodes(
             raw_df=raw_df,
             configured_itemcodes=PLANT_ITEMCODES.get(plant, []),
@@ -678,7 +699,7 @@ def main():
             plant=plant,
         )
         update_df, update_start, update_end = build_update_df(raw_df, itemcodes, plant)
-        old_df = load_existing_output(OUTPUT_FILE, existing_sheet, itemcodes, plant)
+        old_df = load_existing_output(output_file, existing_sheet, itemcodes, plant)
 
         merged_df = merge_by_update_window(
             old_df=old_df,
@@ -709,14 +730,17 @@ def main():
             final_end,
         ))
 
-    backup_output_file(OUTPUT_FILE)
-    save_to_excel(final_by_sheet, OUTPUT_FILE)
+    if dry_run:
+        log("DRY-RUN — 출력 파일을 쓰지 않습니다.")
+    else:
+        backup_output_file(output_file)
+        save_to_excel(final_by_sheet, output_file)
 
     print()
     print("===== 실행 결과 =====")
-    print(f"- 입력 파일: {INPUT_FILE}")
-    print(f"- 출력 파일: {OUTPUT_FILE}")
-    print(f"- 처리 공장 수: {len(PLANTS)}")
+    print(f"- 입력 파일: {input_file}")
+    print(f"- 출력 파일: {output_file}{' (DRY-RUN 미기록)' if dry_run else ''}")
+    print(f"- 처리 공장 수: {len(plants)}")
 
     for plant, output_sheet, item_count, update_start, update_end, row_count, final_start, final_end in summary_rows:
         print(
@@ -727,6 +751,64 @@ def main():
             f"최종 기간={final_start} ~ {final_end}"
         )
 
+    return final_by_sheet
+
+
+def resolve_plants(spec: str | None) -> List[str]:
+    """'F20,김해' → ['F20']. 공장코드·시트명을 모두 받는다."""
+    if not spec:
+        return list(PLANTS)
+
+    by_sheet = {sheet: plant for plant, sheet in OUTPUT_SHEET_BY_PLANT.items()}
+    selected: set = set()
+    unknown: List[str] = []
+    for token in spec.split(","):
+        token = token.strip()
+        if not token:
+            continue
+        if token.upper() in PLANTS:
+            selected.add(token.upper())
+        elif token in by_sheet:
+            selected.add(by_sheet[token])
+        else:
+            unknown.append(token)
+
+    if unknown:
+        raise SystemExit(
+            f"알 수 없는 공장: {unknown}\n"
+            "  공장코드 또는 시트명을 쓰세요 — "
+            + ", ".join(f"{p}={OUTPUT_SHEET_BY_PLANT[p]}" for p in PLANTS)
+        )
+    if not selected:
+        raise SystemExit("--plants 에 공장이 하나도 지정되지 않았습니다.")
+    return [plant for plant in PLANTS if plant in selected]
+
+
+def main() -> int:
+    """가공 전용 CLI. 다른 스크립트에서는 run_refactoring() 을 직접 호출할 것."""
+    import argparse
+
+    p = argparse.ArgumentParser(
+        description="RawDB_재공품.xlsx → DB_재공품.xlsx 가공 (MIS 접속 없음)"
+    )
+    p.add_argument("--in", dest="input_file", default=None,
+                   help=f"입력 Raw 파일 (기본: {INPUT_FILE})")
+    p.add_argument("--out", dest="output_file", default=None,
+                   help=f"출력 파일 (기본: {OUTPUT_FILE})")
+    p.add_argument("--plants", default=None,
+                   help="대상 공장. 코드 또는 시트명 CSV (예: 'F20,광주'). 기본: 전체")
+    p.add_argument("--dry-run", action="store_true",
+                   help="출력 파일을 쓰지 않고 결과 요약만 출력")
+    args = p.parse_args()
+
+    run_refactoring(
+        input_file=args.input_file,
+        output_file=args.output_file,
+        plants=resolve_plants(args.plants),
+        dry_run=args.dry_run,
+    )
+    return 0
+
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

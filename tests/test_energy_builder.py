@@ -232,6 +232,118 @@ def test_write_and_read_raw() -> None:
         print("  ✓ 월 전체 재동기화 — 이전 날짜 생산량 수정 반영 + 행 중복 없음")
 
 
+def _make_production_db(path: Path, quantities: dict) -> None:
+    """{(공장코드, date): kg} 로 DB_생산실적.xlsx daily 시트 fixture 를 만든다."""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "daily"
+    ws.append(["date", "item_code", "item_name", "factory",
+               "category1", "category2", "planned_qty", "actual_qty"])
+    for (factory, day), qty in sorted(quantities.items(), key=lambda kv: kv[0][1]):
+        ws.append([day, "A", "A", factory, "냉장", "MY", 0, qty])
+    wb.save(path)
+    wb.close()
+
+
+def _mix_by_date(raw_path: Path, sheet_name: str) -> dict:
+    wb = load_workbook(raw_path, data_only=False)
+    ws = wb[sheet_name]
+    mix_col = eb._raw_column("mix_prod_kg")
+    out = {}
+    for row_idx in range(2, ws.max_row + 1):
+        day = ws.cell(row=row_idx, column=1).value
+        if day is None:
+            continue
+        out[day.date() if hasattr(day, "date") else day] = ws.cell(
+            row=row_idx, column=mix_col).value
+    wb.close()
+    return out
+
+
+def test_resync_production() -> None:
+    """MIS 없이 믹스생산량만 재집계 — 기간 필터·dry-run·미수집 보존."""
+    with tempfile.TemporaryDirectory() as tmp:
+        raw_path = Path(tmp) / "RawDB_에너지.xlsx"
+        production_path = Path(tmp) / "DB_생산실적.xlsx"
+
+        days = [date(2026, 7, d) for d in (1, 2, 3)]
+        # 7/1·7/2 만 생산실적이 있고 7/3 은 아직 없다
+        _make_production_db(production_path, {
+            ("F10A", days[0]): 200_000,
+            ("F10A", days[1]): 210_000,
+        })
+
+        # 구 화면에서 받아 둔 값이 남아 있는 상태로 적재 (생산 동기화 없이)
+        eb.write_raw(
+            {"남양주1": {d: {"total_power_kwh": 30_000, "mix_prod_kg": 111_111}
+                       for d in days}},
+            raw_path, sync_production=False, recalculate=False,
+        )
+        assert set(_mix_by_date(raw_path, "남양주1").values()) == {111_111}
+
+        # ── 1. dry-run 은 파일을 바꾸지 않는다 ──
+        stats, changes = eb.resync_production(
+            raw_path, production_path=production_path,
+            recalculate=False, dry_run=True,
+        )
+        assert stats["남양주1"] == {"updated": 2, "unchanged": 0, "missing": 1}, stats
+        assert len(changes) == 2, changes
+        assert set(_mix_by_date(raw_path, "남양주1").values()) == {111_111}, \
+            "dry-run 인데 파일이 변경됨"
+        print("  ✓ 재집계 dry-run — 변경 예정만 보고, 파일 무변경")
+
+        # ── 2. 기간 필터 — 7/1 만 대상 ──
+        eb.resync_production(
+            raw_path, date_from=days[0], date_to=days[0],
+            production_path=production_path, recalculate=False,
+        )
+        mix = _mix_by_date(raw_path, "남양주1")
+        assert mix[days[0]] == 200_000, mix
+        assert mix[days[1]] == 111_111, "기간 밖 행이 변경됨"
+        print("  ✓ 재집계 기간 필터 — 지정 범위 밖은 손대지 않음")
+
+        # ── 3. 전체 재집계 — 생산실적 없는 날은 기존 값 보존 ──
+        stats, changes = eb.resync_production(
+            raw_path, production_path=production_path, recalculate=False,
+        )
+        assert stats["남양주1"] == {"updated": 1, "unchanged": 1, "missing": 1}, stats
+        mix = _mix_by_date(raw_path, "남양주1")
+        assert mix[days[0]] == 200_000
+        assert mix[days[1]] == 210_000
+        assert mix[days[2]] == 111_111, "생산실적 없는 날의 기존 값이 지워짐"
+        print("  ✓ 재집계 — 생산실적 기준 정정, 미수집일은 보존")
+
+        # ── 4. 원단위 수식이 갱신 행에 채워져 있다 ──
+        wb = load_workbook(raw_path, data_only=False)
+        ws = wb["남양주1"]
+        assert str(ws.cell(2, 17).value).startswith("="), "전력원단위 수식 없음"
+        wb.close()
+
+        # ── 5. 재실행 시 변경 없음 (idempotent) ──
+        stats, changes = eb.resync_production(
+            raw_path, production_path=production_path, recalculate=False,
+        )
+        assert changes == [], changes
+        assert stats["남양주1"]["updated"] == 0, stats
+        print("  ✓ 재집계 idempotent — 두 번 돌려도 변경 없음")
+
+
+def test_resolve_sheet_names() -> None:
+    """가공 CLI 의 --factories 는 공장명·공장코드를 모두 받는다."""
+    assert eb.resolve_sheet_names(None) == list(eb.FACTORY_SHEETS)
+    assert eb.resolve_sheet_names("경산") == ["경산"]
+    assert eb.resolve_sheet_names("F50") == ["경산"]
+    assert eb.resolve_sheet_names("경산,김해") == ["김해", "경산"]   # 순서 정규화
+    assert eb.resolve_sheet_names("경산,F50") == ["경산"]            # 중복 제거
+    for bad in ("경산공장", "F99", ","):
+        try:
+            eb.resolve_sheet_names(bad)
+        except SystemExit:
+            continue
+        raise AssertionError(f"거부되지 않음: {bad!r}")
+    print("  ✓ 가공 CLI --factories — 공장명/코드 혼용, 오타 거부")
+
+
 def test_missing_production_blocks_write() -> None:
     """생산실적 없는 날짜는 빈 원단위를 만들지 말고 적재 전에 중단한다."""
     with tempfile.TemporaryDirectory() as tmp:
@@ -469,6 +581,7 @@ def main() -> int:
     print("에너지 파이프라인 검증")
     for fn in (test_parse_unit_input, test_cost_price_autodetect,
                test_write_and_read_raw, test_missing_production_blocks_write,
+               test_resync_production, test_resolve_sheet_names,
                test_bems_can_parse_raw,
                test_collect_months, test_resolve_org_codes,
                test_duplicate_grid_guard):

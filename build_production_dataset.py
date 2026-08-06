@@ -47,13 +47,16 @@ def main() -> int:
                    help=f"입력 Raw 파일 (기본: {DEFAULT_RAW_PATH})")
     p.add_argument("--out", type=str, default=str(DEFAULT_OUTPUT_PATH),
                    help=f"출력 파일 (기본: {DEFAULT_OUTPUT_PATH})")
+    p.add_argument("--dry-run", action="store_true",
+                   help="기존 DB 병합까지 수행하고 저장은 생략 (미리보기)")
     p.add_argument("-v", "--verbose", action="store_true")
     args = p.parse_args()
 
     _setup_logging(args.verbose)
 
     t0 = time.time()
-    df, out_path = build_dataset(raw_path=args.raw, output_path=args.out)
+    df, out_path = build_dataset(raw_path=args.raw, output_path=args.out,
+                                 dry_run=args.dry_run)
     dt = time.time() - t0
 
     print(f"\n완료 — {dt:.1f}s")
@@ -80,7 +83,8 @@ def main() -> int:
                 print(f"    → production_dw_service._CATEGORY2_KEYWORDS 보강 또는 'category2_unclassified' 시트 참고")
             else:
                 print(f"    ✓ 모든 품목이 제품유형(category2)으로 분류됨")
-    print(f"\n  output       : {out_path}")
+    print(f"\n  output       : {out_path}"
+          f"{'  (DRY-RUN — 미기록)' if args.dry_run else ''}")
     return 0
 
 

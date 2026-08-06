@@ -921,8 +921,10 @@ def main():
         help="MIS 조회만 실행, Excel 기록하지 않음 (DW 통합도 생략)"
     )
     parser.add_argument(
-        "--skip-dw-build", action="store_true",
-        help="Raw 샘플링만 수행하고 DB_생산실적.xlsx 통합 단계는 생략"
+        # 3종 RPA 가 같은 이름을 쓰도록 --skip-build 로 통일. 구 이름은 별칭 유지.
+        "--skip-build", "--skip-dw-build", dest="skip_build", action="store_true",
+        help="MIS 수집만 하고 DB_생산실적.xlsx 통합(가공)은 생략 "
+             "(가공은 build_production_dataset.py 로 별도 수행)"
     )
     parser.add_argument(
         "--dw-output", type=str, default=None,
@@ -935,7 +937,7 @@ def main():
     rpa = MISProductionRPA(
         ref_date=args.date,
         dry_run=args.dry_run,
-        build_dw=not args.skip_dw_build,
+        build_dw=not args.skip_build,
         dw_output=args.dw_output,
     )
     rpa.run()

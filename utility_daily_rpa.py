@@ -71,6 +71,8 @@ from _common import (  # noqa: E402
     fast_click,
     find_mis_window,
     get_clipboard_sequence,
+    month_range,
+    parse_year_month,
     wait_for_clipboard_change,
 )
 
@@ -153,33 +155,9 @@ def resolve_org_codes(spec: str | None) -> list[str]:
 # ---------------------------------------------------------------------------
 # 기준년월 범위 (과거 데이터 수집)
 # ---------------------------------------------------------------------------
+# 기간 인자 문법(YYYY-MM)은 가공 CLI(build_energy_dataset.py)와 공유한다.
 # 공장 1곳 1개월 조회+복사에 걸리는 대략적 소요 (진행 예상시간 안내용)
 _SECONDS_PER_QUERY = 3.0
-
-
-def _parse_ym(text: str) -> tuple[int, int]:
-    try:
-        year, month = text.strip().split("-")
-        year, month = int(year), int(month)
-        if not 1 <= month <= 12:
-            raise ValueError
-        return year, month
-    except ValueError:
-        raise SystemExit(f"기준년월 형식이 잘못됐습니다: '{text}' (예: 2024-01)")
-
-
-def month_range(start: str, end: str) -> list[str]:
-    """'2024-01' ~ '2024-03' → ['2024-01', '2024-02', '2024-03']"""
-    y0, m0 = _parse_ym(start)
-    y1, m1 = _parse_ym(end)
-    if (y0, m0) > (y1, m1):
-        raise SystemExit(f"--from({start}) 이 --to({end}) 보다 늦습니다.")
-    out = []
-    year, month = y0, m0
-    while (year, month) <= (y1, m1):
-        out.append(f"{year:04d}-{month:02d}")
-        year, month = (year + 1, 1) if month == 12 else (year, month + 1)
-    return out
 
 
 UTILITY_INPUT_FIELD_KEYS = {
@@ -240,7 +218,7 @@ def plan_utility_collection_months(
 def _already_collected(year_month: str, sheet_names: list[str],
                        existing: dict) -> bool:
     """--resume 판정: 해당 월에 요청한 모든 사업장의 행이 이미 있는지."""
-    year, month = _parse_ym(year_month)
+    year, month = parse_year_month(year_month)
     for sheet_name in sheet_names:
         by_date = existing.get(sheet_name) or {}
         if not any(d.year == year and d.month == month for d in by_date):
@@ -1106,12 +1084,20 @@ def main():
         "--yes", action="store_true",
         help="여러 달 수집 시 확인 프롬프트 생략"
     )
+    parser.add_argument(
+        "--skip-build", action="store_true",
+        help="MIS 수집만 하고 RawDB 적재·가공은 생략 "
+             "(가공은 build_energy_dataset.py 로 별도 수행)"
+    )
     args = parser.parse_args()
 
     if args.ym and args.ym_from:
         raise SystemExit("--ym 과 --from 은 함께 쓸 수 없습니다.")
     if args.ym_to and not args.ym_from:
         raise SystemExit("--to 는 --from 과 함께 써야 합니다.")
+    if args.skip_build and args.dry_run:
+        raise SystemExit("--skip-build 와 --dry-run 은 함께 쓸 필요가 없습니다 "
+                         "(둘 다 엑셀을 기록하지 않습니다).")
 
     org_codes = resolve_org_codes(args.factories)
     default_to = (datetime.now() - timedelta(days=1)).strftime("%Y-%m")
@@ -1135,6 +1121,13 @@ def main():
 
     rpa = MISUtilityRPA(dry_run=args.dry_run, org_codes=org_codes,
                         year_months=months)
+    if args.skip_build:
+        # 수집만 — 가공은 build_energy_dataset.py 가 담당한다.
+        # 메모리에만 남으므로 이 모드는 좌표·파싱 검증용이다.
+        if not rpa.collect():
+            raise SystemExit(1)
+        log.info("수집만 완료 (--skip-build). 적재·가공은 실행되지 않았습니다.")
+        return
     rpa.run()
 
 
