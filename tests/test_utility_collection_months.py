@@ -134,7 +134,7 @@ class UtilityCollectionMonthTests(unittest.TestCase):
         self.assertFalse(rpa.auto_recover_missing_dates)
         self.assertEqual(rpa.year_months, ["2026-08"])
 
-    def test_collection_stages_months_without_writing_until_processing(self) -> None:
+    def test_collection_persists_month_before_independent_processing(self) -> None:
         class Window:
             def set_focus(self):
                 pass
@@ -161,14 +161,21 @@ class UtilityCollectionMonthTests(unittest.TestCase):
             patch.object(rpa, "collect_months", side_effect=fake_collect_months),
             patch.object(rpa, "_backup"),
             patch.object(utility_rpa.time, "sleep", return_value=None),
-            patch.object(energy_builder, "write_raw") as write_raw,
+            patch.object(energy_builder, "write_collected_raw") as write_collected,
+            patch.object(
+                energy_builder,
+                "process_collected_raw",
+                return_value=(1, {"김해": {
+                    "updated": 0, "unchanged": 1, "missing": 0,
+                }}, []),
+            ) as process_collected,
         ):
             self.assertTrue(rpa.collect())
-            write_raw.assert_not_called()
-            self.assertEqual(len(rpa.pending_month_records), 1)
+            write_collected.assert_called_once_with(month_records)
+            self.assertEqual(rpa.collected_months, ["2026-08"])
 
             self.assertTrue(rpa.process_collected_data())
-            write_raw.assert_called_once_with(month_records)
+            process_collected.assert_called_once()
 
 
 if __name__ == "__main__":

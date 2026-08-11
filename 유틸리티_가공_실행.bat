@@ -1,4 +1,4 @@
-@REM RawDB_에너지 mix production re-aggregation - processing only, no MIS
+@REM RawDB_에너지_수집 -> RawDB_에너지 build - processing only, no MIS
 @REM   No args  : prompts for period (blank = whole range)
 @REM   With args: passed straight through, e.g. --from 2024-04 --to 2024-08 --dry-run
 @echo off
@@ -6,9 +6,9 @@ setlocal enabledelayedexpansion
 chcp 65001 >nul
 
 echo ============================================
-echo  Energy mix re-aggregation (processing only)
-echo  Source: DB/RawDB production actuals
-echo  Target: RawDB_energy.xlsx  mix column
+echo  Energy dataset build (processing only)
+echo  Source: RawDB_energy_collection.xlsx + production actuals
+echo  Target: RawDB_energy.xlsx
 echo ============================================
 echo.
 
@@ -28,8 +28,8 @@ if not "%~1"=="" (
     goto :done
 )
 
-echo Close RawDB_energy.xlsx in Excel before running.
-echo Leave both months blank to re-aggregate the whole range.
+echo Close RawDB_energy_collection.xlsx and RawDB_energy.xlsx before running.
+echo Leave both months blank to process the whole range.
 set "YM_FROM="
 set "YM_TO="
 set "PREVIEW="
@@ -49,9 +49,9 @@ python build_energy_dataset.py!ARGS!
 :done
 echo.
 if %errorlevel% equ 0 (
-    echo [OK] Re-aggregation completed successfully.
+    echo [OK] Build completed successfully.
 ) else (
-    echo [ERROR] Re-aggregation failed. Exit code: %errorlevel%
+    echo [ERROR] Build failed. Exit code: %errorlevel%
 )
 echo.
 pause

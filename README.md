@@ -16,8 +16,8 @@ BEMS 웹앱(`AI-Elite-BEMS`)에서 분리된 독립 프로젝트입니다.
 ```
 
 - **접점은 `DB_MIS_DIR` 폴더의 엑셀 파일뿐.** RPA는 DB에 직접 쓰지 않습니다.
-- 에너지: RPA가 `RawDB_에너지.xlsx` 수집 → **재가공 없이** 웹이 startup에 적재.
-  (행=일자 tidy 형태라 웹앱 파서가 그대로 읽습니다)
+- 에너지: RPA가 `RawDB_에너지_수집.xlsx` 수집 → 생산량·원단위 가공 →
+  `RawDB_에너지.xlsx` → 웹이 startup에 적재.
 - 생산실적: RPA가 `RawDB_생산실적.xlsx` 수집 → `production_builder.build_dataset` 재가공 →
   `DB_생산실적.xlsx` → 웹이 startup에 적재.
 - 재공품: RPA가 `RawDB_재공품.xlsx` 수집 → `wip_refactoring` 재가공 → `DB_재공품.xlsx`.
@@ -32,13 +32,15 @@ BEMS 웹앱(`AI-Elite-BEMS`)에서 분리된 독립 프로젝트입니다.
                            연료단가·용수량·폐수량·원수COD·배출수COD
                                     │
                                     ▼
-                            RawDB_에너지.xlsx   행=일자, 열=항목, 시트=공장명
-                                    │            → 웹앱이 startup 에 직접 적재
+                       RawDB_에너지_수집.xlsx   MIS 원본 영속 저장
+                                    │  생산량 동기화·원단위 수식 가공
+                                    ▼
+                            RawDB_에너지.xlsx   웹앱이 startup 에 직접 적재
 ```
 
-**단일 파일 · 재가공 없음.** 행=일자 방향은 `DB_생산실적.xlsx` 의 `daily` 시트,
-`DB_재공품.xlsx` 와 통일된 형태이고, 웹앱 파서가 이 형태를 그대로 읽습니다
-(A열이 날짜라 전치 감지 분기를 타지 않고 머리글 부분매칭만으로 컬럼이 잡힘).
+**수집 원본과 가공 완료본을 분리합니다.** 두 파일 모두 행=일자 방향이며,
+`RawDB_에너지_수집.xlsx`에는 MIS 화면 원본만 저장합니다. 가공 완료된
+`RawDB_에너지.xlsx`는 웹앱 파서가 그대로 읽습니다.
 
 - 한동안 `DB_에너지.xlsx`(행=항목, 열=날짜)를 중간 산출물로 두고 재가공했으나
   2026-07-30 폐지했습니다. 웹앱 `v5_common.PATH_ENERGY_SOURCE` 가 `RawDB_에너지.xlsx`
@@ -51,13 +53,12 @@ BEMS 웹앱(`AI-Elite-BEMS`)에서 분리된 독립 프로젝트입니다.
 ### 원단위는 RawDB 엑셀 수식으로 관리합니다 (2026-07-31)
 
 신규 화면에는 믹스생산량·원단위가 없어 구 화면 수집은 제거했습니다. 유틸리티 RPA는
-방금 수집한 `RawDB_생산실적.xlsx`를 우선 읽어 해당 월의 공장별 `actual_qty` 합계를
-`RawDB_에너지.xlsx` 믹스생산량 열에 월 전체 다시 동기화합니다. 전체 자동 실행은
-3종 MIS 수집을 모두 끝낸 뒤 생산실적을 먼저 통합하고, 그 다음 유틸리티를 적재·가공합니다.
-최신 월은 생산 Raw 값을 우선 사용하며 과거 월만 `DB_생산실적.xlsx`로 보완합니다.
+MIS 원본을 먼저 `RawDB_에너지_수집.xlsx`에 저장합니다. 가공 단계는
+`RawDB_생산실적.xlsx`를 우선 읽어 공장별 `actual_qty` 합계를 동기화하고,
+과거 기간은 `DB_생산실적.xlsx`로 보완합니다.
 
-- 생산실적이 없는 공장·일자는 빈 분모와 원단위를 저장하지 않고 즉시 중단하므로,
-  **생산 RPA를 먼저 실행한 뒤 유틸리티 RPA를 실행**해야 합니다.
+- 생산실적이 없으면 수집 원본은 보존되고 가공만 실패합니다. 생산실적을 보완한 뒤
+  `build_energy_dataset.py`를 다시 실행하면 MIS 재수집 없이 복구할 수 있습니다.
 - 같은 월의 이전 날짜 생산실적이 나중에 수정돼도 다음 일일 실행에서 N열과 원단위가
   다시 갱신됩니다.
 - `write_raw`는 냉동·공압·전력·연료·용수 5개 원단위의 빈 셀에 기존 수식을
@@ -73,14 +74,14 @@ AI-Elite-MIS_RPA/
 ├── config.py               # DB_MIS_DIR 경로 해석 (.env)
 ├── factories.py            # 공장 코드/도메인 상수
 ├── production_builder.py   # RawDB_생산실적 → DB_생산실적 재가공 (build_dataset 등)
-├── energy_builder.py       # 에너지 항목 스키마 + RawDB_에너지 적재/읽기/재집계
+├── energy_builder.py       # 에너지 수집 원본 저장 + 최종 파일 가공/재집계
 ├── wip_refactoring.py      # RawDB_재공품 → DB_재공품 재가공
 ├── _common.py              # 클립보드/윈도우/atomic-save/기간파싱 공통 헬퍼
 ├── production_daily_rpa.py # 생산실적 수집 RPA
 ├── utility_daily_rpa.py    # 에너지 수집 RPA — 원단위 실적입력 화면, 일일/과거 겸용
 ├── wip_daily_rpa.py        # 재공품 수집 RPA
 ├── build_production_dataset.py  # 생산실적 재가공 CLI
-├── build_energy_dataset.py      # 에너지 믹스생산량 재집계 CLI (MIS 불필요)
+├── build_energy_dataset.py      # 에너지 수집 원본 → 웹 입력 파일 가공 CLI
 ├── run_all_rpa.py          # 3종 RPA 오케스트레이터
 ├── *_coords.json           # MIS 화면 좌표
 ├── *.bat                   # 실행 래퍼
@@ -125,8 +126,8 @@ python AI-Elite-MIS_RPA\utility_daily_rpa.py --from 2024-01
 python AI-Elite-MIS_RPA\utility_daily_rpa.py --from 2024-01 --to 2026-06
 python AI-Elite-MIS_RPA\utility_daily_rpa.py --from 2024-01 --resume   # 중단 후 이어서
 
-REM 에너지 — 믹스생산량만 재집계 (MIS 접속 없음, 수 초)
-AI-Elite-MIS_RPA\에너지_생산량_재집계.bat
+REM 에너지 — 수집 원본 반영 + 생산량/원단위 가공 (MIS 접속 없음)
+AI-Elite-MIS_RPA\유틸리티_가공_실행.bat
 python AI-Elite-MIS_RPA\build_energy_dataset.py --dry-run             # 변경 예정만
 python AI-Elite-MIS_RPA\build_energy_dataset.py --from 2026-08
 python AI-Elite-MIS_RPA\build_energy_dataset.py --factories 경산
@@ -145,17 +146,18 @@ python AI-Elite-MIS_RPA\build_energy_dataset.py --factories 경산
 | 대상 | 수집만 | 가공만 | 가공 범위 지정 | 가공 .bat |
 |---|---|---|---|---|
 | 생산실적 | `production_daily_rpa.py --skip-build` | `build_production_dataset.py` | `--raw` / `--out` | `생산실적_가공_실행.bat` |
-| 에너지 | `utility_daily_rpa.py --skip-build` | `build_energy_dataset.py` | `--from` / `--to` / `--factories` | `에너지_생산량_재집계.bat` |
+| 에너지 | `utility_daily_rpa.py --skip-build` | `build_energy_dataset.py` | `--in` / `--raw` / `--from` / `--to` / `--factories` | `유틸리티_가공_실행.bat` |
 | 재공품 | `wip_daily_rpa.py --skip-build` | `wip_refactoring.py` | `--plants` / `--in` / `--out` | `재공품_가공_실행.bat` |
 
 > `wip_refactoring.main()` 은 argparse CLI 진입점입니다. 다른 스크립트에서 호출할 때는
 > 반드시 **`run_refactoring()`** 을 쓰세요 — `main()` 을 부르면 호출자의 `sys.argv` 를
 > 파싱해 버립니다.
 
-### 에너지 믹스생산량 재집계 (`build_energy_dataset.py`)
+### 에너지 가공 (`build_energy_dataset.py`)
 
-`RawDB_에너지.xlsx` 의 **믹스생산량[kg]** 열만 생산실적 기준으로 다시 맞춥니다. 사용량·단가·
-비용·COD 열은 건드리지 않고, 원단위 수식은 자동 보완 후 Excel COM 으로 재계산합니다.
+`RawDB_에너지_수집.xlsx`의 MIS 원본 값을 `RawDB_에너지.xlsx`에 반영한 뒤,
+**믹스생산량[kg]**을 생산실적 기준으로 맞추고 원단위 수식을 Excel COM으로 재계산합니다.
+수집과 다른 프로세스에서 실행할 수 있어 실패 후에도 MIS 재수집이 필요 없습니다.
 
 권위 값은 `DB_생산실적.xlsx`(가공 완료본) + `RawDB_생산실적.xlsx`(최신 수집분 우선)입니다.
 
@@ -175,10 +177,12 @@ python AI-Elite-MIS_RPA\build_energy_dataset.py --factories 경산
 다르므로, `--ym`(1개월) 대신 `--from`/`--to`(기간)를 주면 됩니다. `유틸리티_RPA_실행.bat`
 을 인자 없이 실행하면 시작월을 물어보고, 비워 두면 일일 수집으로 동작합니다.
 
-- **2단계 실행** — 지정한 모든 월을 먼저 MIS에서 수집하고, 이후 월 순서대로
-  `RawDB_에너지.xlsx`에 적재·가공합니다. `--resume`은 이미 적재 완료된 달을 건너뜁니다.
-- **덮어쓰기 주의** — 해당 기간의 수집 항목은 화면 값으로 덮어써집니다(신규 화면이 권위
-  소스). 생산실적을 N열에 동기화하고 빈 원단위 수식은 자동 보완합니다. 실행 전 자동 백업됩니다.
+- **2단계 실행** — 월 하나의 MIS 수집이 끝날 때마다 `RawDB_에너지_수집.xlsx`에
+  즉시 저장하고, 모든 수집이 끝난 뒤 최종 파일을 가공합니다. `--resume`은 수집 원본과
+  기존 가공 파일의 이력을 합쳐 이미 완료된 달을 건너뜁니다.
+- **덮어쓰기 주의** — 해당 기간의 수집 원본 항목은 화면 값으로 덮어써집니다.
+  가공 단계에서 생산실적을 동기화하고 빈 원단위 수식을 보완합니다. 두 파일 모두 변경 전
+  자동 백업됩니다.
 - 여러 달을 지정하면 예상 소요를 보여주고 확인을 받습니다(`--yes` 로 생략).
   소요는 `조회 횟수 × 약 3초` — 예: 2024-01~2026-07 전 사업장이면 186회 ≈ 9분.
   실행 중에는 마우스/키보드를 사용하지 마세요.

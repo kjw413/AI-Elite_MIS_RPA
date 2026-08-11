@@ -1,7 +1,7 @@
-# RawDB_에너지.xlsx 가공 전용 CLI — 믹스생산량 재집계 + 원단위 수식 갱신
+# 에너지 가공 전용 CLI — 영속 수집 원본 반영 + 생산량/원단위 갱신
 """
-MIS 화면을 열지 않고 `RawDB_에너지.xlsx` 의 **믹스생산량[kg]** 열만 생산실적 기준으로
-다시 맞춘다. 사용량·단가·비용·COD 열은 건드리지 않는다.
+MIS 화면을 열지 않고 `RawDB_에너지_수집.xlsx`의 좌표 수집 결과를
+`RawDB_에너지.xlsx`에 반영하고, 믹스생산량과 원단위 수식을 갱신한다.
 
 수집(`utility_daily_rpa.py`, MIS 클릭)과 가공(이 스크립트, 엑셀 재집계)을 분리한 것은
 두 단계의 신선도가 어긋날 수 있기 때문이다:
@@ -19,6 +19,7 @@ Usage:
   python build_energy_dataset.py --from 2026-08           # 2026-08 ~ 끝
   python build_energy_dataset.py --from 2024-04 --to 2024-08
   python build_energy_dataset.py --factories 경산          # 특정 공장만
+  python build_energy_dataset.py --in D:/data/energy_collection.xlsx
   python build_energy_dataset.py --dry-run                # 변경 예정만 출력
   python build_energy_dataset.py --no-recalc              # Excel COM 재계산 생략
 """
@@ -54,7 +55,7 @@ def _setup_logging(verbose: bool) -> None:
 
 def main() -> int:
     p = argparse.ArgumentParser(
-        description="RawDB_에너지.xlsx 믹스생산량 재집계 (MIS 접속 없음)"
+        description="에너지 수집 원본 반영 + 믹스생산량/원단위 가공 (MIS 접속 없음)"
     )
     p.add_argument("--from", dest="ym_from", default=None,
                    help="시작 기준년월 (YYYY-MM). 미지정 시 전체 기간")
@@ -63,8 +64,11 @@ def main() -> int:
     p.add_argument("--factories", default=None,
                    help="대상 사업장. 공장명 또는 공장코드 CSV (예: '경산' / 'F50'). "
                         "기본: 전체")
+    p.add_argument("--in", dest="collection", default=None,
+                   help="수집 원본 경로 "
+                        f"(기본: {energy_builder.DEFAULT_COLLECTION_PATH})")
     p.add_argument("--raw", default=None,
-                   help=f"RawDB_에너지 경로 (기본: {energy_builder.DEFAULT_RAW_PATH})")
+                   help=f"가공 출력 경로 (기본: {energy_builder.DEFAULT_RAW_PATH})")
     p.add_argument("--dry-run", action="store_true",
                    help="파일을 저장하지 않고 변경 예정만 출력")
     p.add_argument("--no-recalc", action="store_true",
@@ -80,9 +84,10 @@ def main() -> int:
     period = (f"{args.ym_from or '처음'} ~ {args.ym_to or '끝'}")
     print()
     print("=" * 66)
-    print("  RawDB_에너지 믹스생산량 재집계 (사용량·단가·비용 열은 유지)")
+    print("  에너지 수집 원본 반영 + 믹스생산량/원단위 가공")
     print("=" * 66)
-    print(f"  대상 파일 : {args.raw or energy_builder.DEFAULT_RAW_PATH}")
+    print(f"  수집 원본 : {args.collection or energy_builder.DEFAULT_COLLECTION_PATH}")
+    print(f"  가공 출력 : {args.raw or energy_builder.DEFAULT_RAW_PATH}")
     print(f"  기간      : {period}")
     print(f"  사업장    : {', '.join(sheet_names)}")
     print(f"  권위 값   : {energy_builder.DEFAULT_PRODUCTION_PATH}")
@@ -92,7 +97,8 @@ def main() -> int:
     print("=" * 66)
 
     t0 = time.time()
-    stats, changes = energy_builder.resync_production(
+    collected_days, stats, changes = energy_builder.process_collected_raw(
+        Path(args.collection) if args.collection else None,
         Path(args.raw) if args.raw else None,
         date_from=date_from,
         date_to=date_to,
@@ -103,6 +109,8 @@ def main() -> int:
     elapsed = time.time() - t0
 
     print()
+    mode_text = "반영 예정" if args.dry_run else "반영"
+    print(f"수집 원본 {collected_days}일 {mode_text}")
     print(f"{'공장':10s}{'갱신':>8}{'동일':>8}{'실적없음':>10}")
     for sheet_name in sheet_names:
         s = stats.get(sheet_name)
@@ -143,7 +151,7 @@ def main() -> int:
             if len(major) > 25:
                 print(f"    … 외 {len(major) - 25}건")
     else:
-        print("\n변경 없음 — 이미 생산실적과 일치합니다.")
+        print("\n생산량 변경 없음 — 이미 생산실적과 일치합니다.")
 
     print(f"\n완료 — {elapsed:.1f}s")
     return 0

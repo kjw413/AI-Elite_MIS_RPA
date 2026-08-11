@@ -577,11 +577,58 @@ def test_duplicate_grid_guard() -> None:
     print("  ✓ 중복 그리드 차단 — 공장 선택 실패 시 적재 거부 + 오탐 없음")
 
 
+
+
+def test_persisted_collection_can_be_processed_later() -> None:
+    """수집 원본만 저장한 뒤 별도 호출에서 최종 에너지 파일을 만들 수 있어야 한다."""
+    with tempfile.TemporaryDirectory() as tmp:
+        collection_path = Path(tmp) / "RawDB_에너지_수집.xlsx"
+        raw_path = Path(tmp) / "RawDB_에너지.xlsx"
+        production_path = Path(tmp) / "DB_생산실적.xlsx"
+        day = date(2026, 8, 1)
+        _make_production_db(production_path, {("F10A", day): 125_000})
+
+        eb.write_collected_raw(
+            {"남양주1": {day: {
+                "total_power_kwh": 25_000,
+                "mix_prod_kg": 999,
+                "power_per_ton_kwh": 999,
+            }}},
+            collection_path,
+        )
+        assert collection_path.exists()
+        assert not raw_path.exists(), "수집 단계가 웹 입력 파일을 미리 만들었습니다."
+
+        staged = eb.read_raw(collection_path)["남양주1"][day]
+        assert staged == {"total_power_kwh": 25_000}, staged
+
+        collected_days, stats, changes = eb.process_collected_raw(
+            collection_path,
+            raw_path,
+            production_path=production_path,
+            recalculate=False,
+        )
+        assert collected_days == 1
+        assert stats["남양주1"]["missing"] == 0
+        assert changes == []
+
+        processed = eb.read_raw(raw_path)["남양주1"][day]
+        assert processed["total_power_kwh"] == 25_000
+        assert processed["mix_prod_kg"] == 125_000
+
+        wb = load_workbook(raw_path, data_only=False)
+        ws = wb["남양주1"]
+        assert str(ws.cell(2, eb._raw_column("power_per_ton_kwh")).value).startswith("=")
+        wb.close()
+        print("  ✓ 영속 수집 원본 → 별도 프로세스 가공 및 최종 파일 생성")
+
+
 def main() -> int:
     print("에너지 파이프라인 검증")
     for fn in (test_parse_unit_input, test_cost_price_autodetect,
                test_write_and_read_raw, test_missing_production_blocks_write,
-               test_resync_production, test_resolve_sheet_names,
+               test_resync_production, test_persisted_collection_can_be_processed_later,
+               test_resolve_sheet_names,
                test_bems_can_parse_raw,
                test_collect_months, test_resolve_org_codes,
                test_duplicate_grid_guard):

@@ -1,8 +1,9 @@
 # MIS 에너지(유틸리티) 일일 실적 자동 샘플링 RPA (pywinauto + openpyxl 기반)
 """
 사내 MIS '(신)종합정보' 시스템에서 에너지 일일 실적을 사업장별로 자동 조회 →
-클립보드 복사 결과를 먼저 메모리에 수집한 뒤, 별도 가공 단계에서
-RawDB_에너지.xlsx 에 적재하는 RPA 프로그램. 이 파일을 BEMS 웹앱이 그대로 읽는다.
+클립보드 복사 결과를 `RawDB_에너지_수집.xlsx`에 즉시 영속 저장하는 RPA 프로그램.
+별도 가공 단계가 이 원본을 읽어 `RawDB_에너지.xlsx`를 만들며, BEMS 웹앱은
+가공 완료 파일만 읽는다.
 
 == 수집 화면 ==
 '원단위 실적입력(일단위)' [unit_input] 한 화면만 사용한다 — 행=일자, 열=항목.
@@ -12,21 +13,20 @@ RawDB_에너지.xlsx 에 적재하는 RPA 프로그램. 이 파일을 BEMS 웹�
          원수COD | 배출수COD
 
 2026-07 이전에는 '유틸리티 일자별 사용량 추이' 화면을 쓰다가 이 화면으로 옮겼다.
-신규 화면에 없는 믹스생산량은 방금 수집한 `RawDB_생산실적.xlsx`의 공장별 actual_qty
-합계로 해당 월 전체를 다시 동기화한다. 생산량이 없는 공장·일자는 빈 원단위를 저장하지
-않고 적재를 중단한다. 과거 기간은 `DB_생산실적.xlsx` daily 값으로 보완한다.
-냉동·공압·전력·연료·용수 원단위는 Python에서 계산하지 않고
-RawDB_에너지.xlsx 수식으로 관리하며,
-RPA 적재 시 빈 수식을 자동 채운 뒤 Excel에서 전체 재계산·저장한다.
+신규 화면에 없는 믹스생산량은 가공 단계에서 `RawDB_생산실적.xlsx`와
+`DB_생산실적.xlsx`를 읽어 동기화한다. 냉동·공압·전력·연료·용수 원단위는
+Python에서 계산하지 않고 `RawDB_에너지.xlsx` 수식으로 관리한다.
 
 업무 절차:
   1. MIS 앱 연결 (pywinauto UIA backend)
   2. 화면 진입 → 기준년월 설정 → 사업장 순회(F1A→F1B→F20→F30→F40→F50)
      조회 → 그리드 복사 → 클립보드 파싱
-  3. RawDB_에너지.xlsx 적재 (행=일자, 열=항목)
+  3. RawDB_에너지_수집.xlsx 영속 저장 (행=일자, 열=MIS 원본 항목)
+  4. 별도 가공 단계에서 RawDB_에너지.xlsx 생성
 
-일일 수집과 과거 데이터 수집은 화면·파싱·적재 경로가 완전히 같고 도는 달 수만 다르다.
-모든 월의 MIS 수집을 먼저 끝낸 뒤 가공 단계에서 월 순서대로 적재한다.
+일일 수집과 과거 데이터 수집은 화면·파싱·원본 저장 경로가 완전히 같고 도는 달 수만
+다르다. 월 하나의 수집이 끝날 때마다 원본을 저장하므로 가공 실패나 프로세스 종료 뒤에도
+`build_energy_dataset.py`로 다시 가공할 수 있다.
 
 Usage:
   python utility_daily_rpa.py                          # D-1 기준월 + 직전 누락 자동 복구
@@ -71,6 +71,7 @@ from _common import (  # noqa: E402
     fast_click,
     find_mis_window,
     get_clipboard_sequence,
+    month_bounds,
     month_range,
     parse_year_month,
     wait_for_clipboard_change,
@@ -160,9 +161,7 @@ def resolve_org_codes(spec: str | None) -> list[str]:
 _SECONDS_PER_QUERY = 3.0
 
 
-UTILITY_INPUT_FIELD_KEYS = {
-    field.key for field in energy_builder.FIELDS if field.source == "unit_input"
-}
+UTILITY_INPUT_FIELD_KEYS = energy_builder.COLLECTED_FIELD_KEYS
 
 
 def load_utility_collected_dates(
@@ -215,6 +214,22 @@ def plan_utility_collection_months(
     return [previous_day.strftime("%Y-%m"), current_month]
 
 
+def load_utility_collection_history(
+    sheet_names: list[str],
+) -> dict[str, set[date]]:
+    """새 수집 원본과 기존 웹 입력 파일의 수집 이력을 합쳐 읽는다."""
+    combined = {name: set() for name in sheet_names}
+    paths = dict.fromkeys([
+        Path(energy_builder.DEFAULT_COLLECTION_PATH),
+        Path(energy_builder.DEFAULT_RAW_PATH),
+    ])
+    for path in paths:
+        loaded = load_utility_collected_dates(path, sheet_names)
+        for sheet_name in sheet_names:
+            combined[sheet_name].update(loaded.get(sheet_name, set()))
+    return combined
+
+
 def _already_collected(year_month: str, sheet_names: list[str],
                        existing: dict) -> bool:
     """--resume 판정: 해당 월에 요청한 모든 사업장의 행이 이미 있는지."""
@@ -228,11 +243,8 @@ def _already_collected(year_month: str, sheet_names: list[str],
 
 def drop_collected_months(months: list[str], org_codes: list[str]) -> list[str]:
     """이미 적재된 달을 제외한다 (--resume). 파일이 없으면 전체를 반환."""
-    raw_path = Path(energy_builder.DEFAULT_RAW_PATH)
-    if not raw_path.exists():
-        return months
-    existing = energy_builder.read_raw(raw_path)
     sheet_names = [FACTORY_SHEET_MAP[c] for c in org_codes]
+    existing = load_utility_collection_history(sheet_names)
     remaining = [m for m in months
                  if not _already_collected(m, sheet_names, existing)]
     skipped = len(months) - len(remaining)
@@ -255,10 +267,10 @@ def confirm_plan(months: list[str], org_codes: list[str],
     print(f"  기간      : {months[0]} ~ {months[-1]}  ({len(months)}개월)")
     print(f"  사업장    : {', '.join(sheet_names)}")
     print(f"  조회 횟수 : {queries}회  (예상 {minutes:.0f}분)")
-    print(f"  적재 대상 : {energy_builder.DEFAULT_RAW_PATH}  (웹앱이 읽는 파일)")
+    print(f"  수집 원본 : {energy_builder.DEFAULT_COLLECTION_PATH}")
+    print(f"  가공 출력 : {energy_builder.DEFAULT_RAW_PATH}  (웹앱이 읽는 파일)")
     print()
-    print("  ※ 해당 기간의 수집 항목은 화면 값으로 '덮어쓰기' 됩니다.")
-    print("     생산실적을 동기화하고, 빈 원단위 수식은 자동으로 채웁니다.")
+    print("  ※ 수집 원본은 월별로 즉시 저장되고, 이후 생산량·원단위를 가공합니다.")
     print("  ※ 실행 중 마우스/키보드를 사용하지 마세요 (좌표 클릭 기반).")
     print("=" * 66)
 
@@ -542,9 +554,7 @@ class MISUtilityRPA:
             end_date = (datetime.now() - timedelta(days=1)).date()
             self.year_month = end_date.strftime("%Y-%m")
             sheet_names = [FACTORY_SHEET_MAP[code] for code in self.org_codes]
-            collected = load_utility_collected_dates(
-                energy_builder.DEFAULT_RAW_PATH, sheet_names
-            )
+            collected = load_utility_collection_history(sheet_names)
             self.year_months = plan_utility_collection_months(end_date, collected)
 
             if len(self.year_months) > 1:
@@ -573,8 +583,9 @@ class MISUtilityRPA:
 
         # 좌표 오류로 직전 공장 그리드를 재복사한 사례 — (화면, 년월, 공장, 원본공장)
         self.duplicate_grids: list[tuple[str, str, str, str]] = []
-        self.pending_month_records: list[tuple[str, dict]] = []
+        self.collected_months: list[str] = []
         self.collected_records: dict[str, dict] = {}
+        self._collection_backup_done = False
 
         # 좌표 설정 로드 — { 화면키: { 좌표명: 값 } }
         self.coords = self._load_coords()
@@ -918,13 +929,14 @@ class MISUtilityRPA:
     # 수집 단계
     # -----------------------------------------------------------------------
     def collect(self) -> bool:
-        """사업장을 순회해 데이터를 메모리에 수집하고 가공 대기 상태로 둔다."""
+        """사업장을 순회하고 월별 결과를 수집 원본 파일에 즉시 저장한다."""
         log.info("=" * 60)
         log.info("MIS 에너지 실적 수집 단계 시작")
         log.info("=" * 60)
 
-        self.pending_month_records = []
+        self.collected_months = []
         self.collected_records = {}
+        self._collection_backup_done = False
 
         self._validate_coords()
 
@@ -933,11 +945,11 @@ class MISUtilityRPA:
         self.main_window.set_focus()
         time.sleep(WAIT_MEDIUM)
 
-        # 2. 수집 — 적재와 수식 가공은 3종 수집 완료 후 별도 단계에서 수행한다.
+        # 2. 수집 — 월별 원본은 즉시 저장하고, 생산량·수식 가공은 나중에 수행한다.
         t0 = time.time()
         records = self.collect_months(
             SCREEN_UNIT_INPUT, parse_unit_input_clipboard, self.year_months,
-            on_month_done=self._stage_month,
+            on_month_done=self._persist_month,
         )
         self.collected_records = records
         elapsed = time.time() - t0
@@ -958,58 +970,71 @@ class MISUtilityRPA:
             "DRY-RUN 수집 완료 (엑셀 미기록)"
             if self.dry_run
             else f"수집 완료: {len(records)}개 사업장 / 총 {day_count}일 "
-                 f"(가공 대기 {len(self.pending_month_records)}개월)"
+                 f"(원본 저장 {len(self.collected_months)}개월)"
         )
         self.report_duplicate_grids()
         log.info("=" * 60)
         return True
 
-    def _stage_month(self, year_month: str, month_records: dict) -> None:
-        """한 달 수집 결과를 가공 단계까지 메모리에 보관한다."""
+    def _persist_month(self, year_month: str, month_records: dict) -> None:
+        """한 달 수집 결과를 독립 원본 파일에 즉시 영속 저장한다."""
         if not month_records:
             log.warning(f"  {year_month}: 수집된 사업장 없음")
             return
         days = sum(len(v) for v in month_records.values())
+        if self.dry_run:
+            log.info(
+                f"  {year_month} DRY-RUN: "
+                f"{len(month_records)}개 사업장 / {days}일 (원본 미저장)"
+            )
+            return
+        if not self._collection_backup_done:
+            self._backup(energy_builder.DEFAULT_COLLECTION_PATH)
+            self._collection_backup_done = True
+        energy_builder.write_collected_raw(month_records)
+        self.collected_months.append(year_month)
         log.info(
-            f"  {year_month} 수집 보관: "
+            f"  {year_month} 수집 원본 저장: "
             f"{len(month_records)}개 사업장 / {days}일"
         )
-        self.pending_month_records.append((year_month, month_records))
 
     # -----------------------------------------------------------------------
     # 가공 단계
     # -----------------------------------------------------------------------
     def process_collected_data(self) -> bool:
-        """대기 중인 월별 결과를 RawDB_에너지에 적재하고 수식을 가공한다."""
+        """영속 수집 원본을 다시 읽어 웹 입력 파일을 가공한다."""
         if self.dry_run:
             log.info("유틸리티 가공 단계 생략 (dry-run 모드)")
             return True
-        if not self.pending_month_records:
-            log.error("가공할 유틸리티 수집 결과가 없습니다.")
+        if not self.collected_months:
+            log.error("이번 실행에서 저장된 유틸리티 수집 원본이 없습니다.")
             return False
 
+        date_from, date_to = month_bounds(
+            min(self.collected_months), max(self.collected_months)
+        )
+        sheet_names = [FACTORY_SHEET_MAP[code] for code in self.org_codes]
         log.info("=" * 60)
         log.info(
-            f"유틸리티 가공 단계 시작 — "
-            f"{len(self.pending_month_records)}개월 순차 적재"
+            f"유틸리티 가공 단계 시작 — 영속 원본 {len(self.collected_months)}개월"
         )
         log.info("=" * 60)
         self._backup(energy_builder.DEFAULT_RAW_PATH)
-
-        for index, (year_month, month_records) in enumerate(
-            self.pending_month_records, start=1
-        ):
-            log.info(
-                f"가공 월 [{index}/{len(self.pending_month_records)}]: {year_month}"
+        try:
+            collected_days, stats, changes = energy_builder.process_collected_raw(
+                date_from=date_from,
+                date_to=date_to,
+                sheet_names=sheet_names,
             )
-            try:
-                energy_builder.write_raw(month_records)
-            except Exception as exc:
-                log.error(
-                    f"유틸리티 가공 실패: {year_month} ({exc})",
-                    exc_info=True,
-                )
-                return False
+        except Exception as exc:
+            log.error(f"유틸리티 가공 실패: {exc}", exc_info=True)
+            return False
+
+        missing = sum(item["missing"] for item in stats.values())
+        log.info(
+            f"유틸리티 가공 완료: 수집 원본 {collected_days}일 / "
+            f"생산량 변경 {len(changes)}건 / 생산실적 없음 {missing}건"
+        )
         return True
 
     # -----------------------------------------------------------------------
@@ -1086,7 +1111,7 @@ def main():
     )
     parser.add_argument(
         "--skip-build", action="store_true",
-        help="MIS 수집만 하고 RawDB 적재·가공은 생략 "
+        help="MIS 수집 원본은 저장하고 생산량·원단위 가공만 생략 "
              "(가공은 build_energy_dataset.py 로 별도 수행)"
     )
     args = parser.parse_args()
@@ -1097,7 +1122,7 @@ def main():
         raise SystemExit("--to 는 --from 과 함께 써야 합니다.")
     if args.skip_build and args.dry_run:
         raise SystemExit("--skip-build 와 --dry-run 은 함께 쓸 필요가 없습니다 "
-                         "(둘 다 엑셀을 기록하지 않습니다).")
+                         "(dry-run은 수집 원본도 기록하지 않습니다).")
 
     org_codes = resolve_org_codes(args.factories)
     default_to = (datetime.now() - timedelta(days=1)).strftime("%Y-%m")
@@ -1122,13 +1147,16 @@ def main():
     rpa = MISUtilityRPA(dry_run=args.dry_run, org_codes=org_codes,
                         year_months=months)
     if args.skip_build:
-        # 수집만 — 가공은 build_energy_dataset.py 가 담당한다.
-        # 메모리에만 남으므로 이 모드는 좌표·파싱 검증용이다.
+        # 수집 원본은 영속 저장하고, 가공은 build_energy_dataset.py 가 담당한다.
         if not rpa.collect():
             raise SystemExit(1)
-        log.info("수집만 완료 (--skip-build). 적재·가공은 실행되지 않았습니다.")
+        log.info(
+            "수집 원본 저장 완료 (--skip-build). "
+            "build_energy_dataset.py 로 가공할 수 있습니다."
+        )
         return
-    rpa.run()
+    if not rpa.run():
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":
