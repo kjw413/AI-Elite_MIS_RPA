@@ -1,8 +1,8 @@
 # MIS 에너지(유틸리티) 일일 실적 자동 샘플링 RPA (pywinauto + openpyxl 기반)
 """
 사내 MIS '(신)종합정보' 시스템에서 에너지 일일 실적을 사업장별로 자동 조회 →
-클립보드 복사 결과를 `RawDB_에너지_수집.xlsx`에 즉시 영속 저장하는 RPA 프로그램.
-별도 가공 단계가 이 원본을 읽어 `RawDB_에너지.xlsx`를 만들며, BEMS 웹앱은
+클립보드 복사 결과를 `RawDB_에너지.xlsx`에 즉시 영속 저장하는 RPA 프로그램.
+별도 가공 단계가 이 원본을 읽어 `DB_에너지.xlsx`를 만들며, BEMS 웹앱은
 가공 완료 파일만 읽는다.
 
 == 수집 화면 ==
@@ -15,14 +15,14 @@
 2026-07 이전에는 '유틸리티 일자별 사용량 추이' 화면을 쓰다가 이 화면으로 옮겼다.
 신규 화면에 없는 믹스생산량은 가공 단계에서 `RawDB_생산실적.xlsx`와
 `DB_생산실적.xlsx`를 읽어 동기화한다. 냉동·공압·전력·연료·용수 원단위는
-Python에서 계산하지 않고 `RawDB_에너지.xlsx` 수식으로 관리한다.
+Python에서 계산하지 않고 `DB_에너지.xlsx` 수식으로 관리한다.
 
 업무 절차:
   1. MIS 앱 연결 (pywinauto UIA backend)
   2. 화면 진입 → 기준년월 설정 → 사업장 순회(F1A→F1B→F20→F30→F40→F50)
      조회 → 그리드 복사 → 클립보드 파싱
-  3. RawDB_에너지_수집.xlsx 영속 저장 (행=일자, 열=MIS 원본 항목)
-  4. 별도 가공 단계에서 RawDB_에너지.xlsx 생성
+  3. RawDB_에너지.xlsx 영속 저장 (행=일자, 열=MIS 원본 항목)
+  4. 별도 가공 단계에서 DB_에너지.xlsx 생성
 
 일일 수집과 과거 데이터 수집은 화면·파싱·원본 저장 경로가 완전히 같고 도는 달 수만
 다르다. 월 하나의 수집이 끝날 때마다 원본을 저장하므로 가공 실패나 프로세스 종료 뒤에도
@@ -220,8 +220,8 @@ def load_utility_collection_history(
     """새 수집 원본과 기존 웹 입력 파일의 수집 이력을 합쳐 읽는다."""
     combined = {name: set() for name in sheet_names}
     paths = dict.fromkeys([
-        Path(energy_builder.DEFAULT_COLLECTION_PATH),
         Path(energy_builder.DEFAULT_RAW_PATH),
+        Path(energy_builder.DEFAULT_OUTPUT_PATH),
     ])
     for path in paths:
         loaded = load_utility_collected_dates(path, sheet_names)
@@ -267,8 +267,8 @@ def confirm_plan(months: list[str], org_codes: list[str],
     print(f"  기간      : {months[0]} ~ {months[-1]}  ({len(months)}개월)")
     print(f"  사업장    : {', '.join(sheet_names)}")
     print(f"  조회 횟수 : {queries}회  (예상 {minutes:.0f}분)")
-    print(f"  수집 원본 : {energy_builder.DEFAULT_COLLECTION_PATH}")
-    print(f"  가공 출력 : {energy_builder.DEFAULT_RAW_PATH}  (웹앱이 읽는 파일)")
+    print(f"  수집 원본 : {energy_builder.DEFAULT_RAW_PATH}")
+    print(f"  가공 출력 : {energy_builder.DEFAULT_OUTPUT_PATH}  (웹앱이 읽는 파일)")
     print()
     print("  ※ 수집 원본은 월별로 즉시 저장되고, 이후 생산량·원단위를 가공합니다.")
     print("  ※ 실행 중 마우스/키보드를 사용하지 마세요 (좌표 클릭 기반).")
@@ -989,7 +989,7 @@ class MISUtilityRPA:
             )
             return
         if not self._collection_backup_done:
-            self._backup(energy_builder.DEFAULT_COLLECTION_PATH)
+            self._backup(energy_builder.DEFAULT_RAW_PATH)
             self._collection_backup_done = True
         energy_builder.write_collected_raw(month_records)
         self.collected_months.append(year_month)
@@ -1019,7 +1019,7 @@ class MISUtilityRPA:
             f"유틸리티 가공 단계 시작 — 영속 원본 {len(self.collected_months)}개월"
         )
         log.info("=" * 60)
-        self._backup(energy_builder.DEFAULT_RAW_PATH)
+        self._backup(energy_builder.DEFAULT_OUTPUT_PATH)
         try:
             collected_days, stats, changes = energy_builder.process_collected_raw(
                 date_from=date_from,

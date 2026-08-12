@@ -1,7 +1,7 @@
 # 에너지 가공 전용 CLI — 영속 수집 원본 반영 + 생산량/원단위 갱신
 """
-MIS 화면을 열지 않고 `RawDB_에너지_수집.xlsx`의 좌표 수집 결과를
-`RawDB_에너지.xlsx`에 반영하고, 믹스생산량과 원단위 수식을 갱신한다.
+MIS 화면을 열지 않고 `RawDB_에너지.xlsx`의 좌표 수집 결과를
+`DB_에너지.xlsx`에 반영하고, 믹스생산량과 원단위 수식을 갱신한다.
 
 수집(`utility_daily_rpa.py`, MIS 클릭)과 가공(이 스크립트, 엑셀 재집계)을 분리한 것은
 두 단계의 신선도가 어긋날 수 있기 때문이다:
@@ -19,7 +19,7 @@ Usage:
   python build_energy_dataset.py --from 2026-08           # 2026-08 ~ 끝
   python build_energy_dataset.py --from 2024-04 --to 2024-08
   python build_energy_dataset.py --factories 경산          # 특정 공장만
-  python build_energy_dataset.py --in D:/data/energy_collection.xlsx
+  python build_energy_dataset.py --raw D:/data/RawDB_에너지.xlsx --out D:/data/DB_에너지.xlsx
   python build_energy_dataset.py --dry-run                # 변경 예정만 출력
   python build_energy_dataset.py --no-recalc              # Excel COM 재계산 생략
 """
@@ -64,11 +64,11 @@ def main() -> int:
     p.add_argument("--factories", default=None,
                    help="대상 사업장. 공장명 또는 공장코드 CSV (예: '경산' / 'F50'). "
                         "기본: 전체")
-    p.add_argument("--in", dest="collection", default=None,
-                   help="수집 원본 경로 "
-                        f"(기본: {energy_builder.DEFAULT_COLLECTION_PATH})")
-    p.add_argument("--raw", default=None,
-                   help=f"가공 출력 경로 (기본: {energy_builder.DEFAULT_RAW_PATH})")
+    p.add_argument("--raw", "--in", dest="raw", default=None,
+                   help="입력 Raw 파일 "
+                        f"(기본: {energy_builder.DEFAULT_RAW_PATH})")
+    p.add_argument("--out", dest="output", default=None,
+                   help=f"출력 DB 파일 (기본: {energy_builder.DEFAULT_OUTPUT_PATH})")
     p.add_argument("--dry-run", action="store_true",
                    help="파일을 저장하지 않고 변경 예정만 출력")
     p.add_argument("--no-recalc", action="store_true",
@@ -86,8 +86,8 @@ def main() -> int:
     print("=" * 66)
     print("  에너지 수집 원본 반영 + 믹스생산량/원단위 가공")
     print("=" * 66)
-    print(f"  수집 원본 : {args.collection or energy_builder.DEFAULT_COLLECTION_PATH}")
-    print(f"  가공 출력 : {args.raw or energy_builder.DEFAULT_RAW_PATH}")
+    print(f"  수집 원본 : {args.raw or energy_builder.DEFAULT_RAW_PATH}")
+    print(f"  가공 출력 : {args.output or energy_builder.DEFAULT_OUTPUT_PATH}")
     print(f"  기간      : {period}")
     print(f"  사업장    : {', '.join(sheet_names)}")
     print(f"  권위 값   : {energy_builder.DEFAULT_PRODUCTION_PATH}")
@@ -98,8 +98,8 @@ def main() -> int:
 
     t0 = time.time()
     collected_days, stats, changes = energy_builder.process_collected_raw(
-        Path(args.collection) if args.collection else None,
         Path(args.raw) if args.raw else None,
+        Path(args.output) if args.output else None,
         date_from=date_from,
         date_to=date_to,
         sheet_names=sheet_names,

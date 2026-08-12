@@ -3,7 +3,7 @@
 # MIS/E: 드라이브 없이 임시 fixture 로
 #   utility_daily_rpa.parse_unit_input_clipboard  ('원단위 실적입력' 클립보드 파싱)
 #   utility_daily_rpa.resolve_org_codes           (--factories 해석)
-#   energy_builder.write_raw / read_raw            (RawDB_에너지 적재·읽기)
+#   energy_builder.write_raw / read_raw            (에너지 파일 적재·읽기)
 # 를 검증한다.
 #
 # 실행: python tests/test_energy_builder.py
@@ -99,7 +99,7 @@ def test_cost_price_autodetect() -> None:
 def test_write_and_read_raw() -> None:
     """적재/재읽기 + 과거 값 보존 + 신규 원단위 수식 자동 채움."""
     with tempfile.TemporaryDirectory() as tmp:
-        raw_path = Path(tmp) / "RawDB_에너지.xlsx"
+        raw_path = Path(tmp) / "DB_에너지.xlsx"
         production_path = Path(tmp) / "DB_생산실적.xlsx"
         production_wb = Workbook()
         production_ws = production_wb.active
@@ -263,7 +263,7 @@ def _mix_by_date(raw_path: Path, sheet_name: str) -> dict:
 def test_resync_production() -> None:
     """MIS 없이 믹스생산량만 재집계 — 기간 필터·dry-run·미수집 보존."""
     with tempfile.TemporaryDirectory() as tmp:
-        raw_path = Path(tmp) / "RawDB_에너지.xlsx"
+        raw_path = Path(tmp) / "DB_에너지.xlsx"
         production_path = Path(tmp) / "DB_생산실적.xlsx"
 
         days = [date(2026, 7, d) for d in (1, 2, 3)]
@@ -347,7 +347,7 @@ def test_resolve_sheet_names() -> None:
 def test_missing_production_blocks_write() -> None:
     """생산실적 없는 날짜는 빈 원단위를 만들지 말고 적재 전에 중단한다."""
     with tempfile.TemporaryDirectory() as tmp:
-        raw_path = Path(tmp) / "RawDB_에너지.xlsx"
+        raw_path = Path(tmp) / "DB_에너지.xlsx"
         production_path = Path(tmp) / "DB_생산실적.xlsx"
         wb = Workbook()
         ws = wb.active
@@ -401,7 +401,7 @@ def test_bems_can_parse_raw() -> None:
                 "fuel_per_ton_nm3", "water_per_ton_ton"]
 
     with tempfile.TemporaryDirectory() as tmp:
-        raw_path = Path(tmp) / "RawDB_에너지.xlsx"
+        raw_path = Path(tmp) / "DB_에너지.xlsx"
         eb.write_raw({"남양주1": rpa.parse_unit_input_clipboard(
             _unit_input_clipboard(), "2026-07")}, raw_path,
             sync_production=False, recalculate=False)
@@ -581,9 +581,12 @@ def test_duplicate_grid_guard() -> None:
 
 def test_persisted_collection_can_be_processed_later() -> None:
     """수집 원본만 저장한 뒤 별도 호출에서 최종 에너지 파일을 만들 수 있어야 한다."""
+    assert eb.DEFAULT_RAW_PATH.name == "RawDB_에너지.xlsx"
+    assert eb.DEFAULT_OUTPUT_PATH.name == "DB_에너지.xlsx"
+
     with tempfile.TemporaryDirectory() as tmp:
-        collection_path = Path(tmp) / "RawDB_에너지_수집.xlsx"
-        raw_path = Path(tmp) / "RawDB_에너지.xlsx"
+        collection_path = Path(tmp) / "RawDB_에너지.xlsx"
+        raw_path = Path(tmp) / "DB_에너지.xlsx"
         production_path = Path(tmp) / "DB_생산실적.xlsx"
         day = date(2026, 8, 1)
         _make_production_db(production_path, {("F10A", day): 125_000})

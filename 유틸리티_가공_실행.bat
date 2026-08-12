@@ -1,4 +1,4 @@
-@REM RawDB_에너지_수집 -> RawDB_에너지 build - processing only, no MIS
+@REM RawDB_에너지 -> DB_에너지 build - processing only, no MIS
 @REM   No args  : prompts for period (blank = whole range)
 @REM   With args: passed straight through, e.g. --from 2024-04 --to 2024-08 --dry-run
 @echo off
@@ -7,8 +7,8 @@ chcp 65001 >nul
 
 echo ============================================
 echo  Energy dataset build (processing only)
-echo  Source: RawDB_energy_collection.xlsx + production actuals
-echo  Target: RawDB_energy.xlsx
+echo  Source: RawDB_energy.xlsx + production actuals
+echo  Target: DB_energy.xlsx
 echo ============================================
 echo.
 
@@ -28,7 +28,7 @@ if not "%~1"=="" (
     goto :done
 )
 
-echo Close RawDB_energy_collection.xlsx and RawDB_energy.xlsx before running.
+echo Close RawDB_energy.xlsx and DB_energy.xlsx before running.
 echo Leave both months blank to process the whole range.
 set "YM_FROM="
 set "YM_TO="

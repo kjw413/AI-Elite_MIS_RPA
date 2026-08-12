@@ -1,17 +1,17 @@
 # 에너지 수집 원본/웹 입력 파일의 스키마 정의 · 적재 · 읽기 · 가공
 """
 MIS '원단위 실적입력(일단위)' 화면에서 수집한 에너지 실적을 별도 원본 파일에
-영속 저장하고, 생산량·원단위를 보완한 `RawDB_에너지.xlsx` 만 BEMS 웹앱에 전달한다.
+영속 저장하고, 생산량·원단위를 보완한 `DB_에너지.xlsx` 만 BEMS 웹앱에 전달한다.
 
     [MIS 원단위 실적입력(일단위)]
       냉동전력/공압기/전력량/전력비/전력단가/연료량/연료비/연료단가/
       용수량/폐수량/원수COD/배출수COD
                      │  utility_daily_rpa (수집)
                      ▼
-          RawDB_에너지_수집.xlsx     행 = 일자, 열 = MIS 원본 항목
+          RawDB_에너지.xlsx     행 = 일자, 열 = MIS 원본 항목
                      │  build_energy_dataset (가공)
                      ▼
-              RawDB_에너지.xlsx     생산량·원단위 포함
+              DB_에너지.xlsx     생산량·원단위 포함
               시트 = 공장명          → BEMS 웹앱이 startup 에 직접 적재
 
 행=일자 방향은 `DB_생산실적.xlsx` 의 `daily` 시트, `DB_재공품.xlsx` 와 통일된 형태다.
@@ -19,7 +19,7 @@ MIS '원단위 실적입력(일단위)' 화면에서 수집한 에너지 실적�
 == 이력 ==
 - 2026-07 수집 화면이 '유틸리티 일자별 사용량 추이' → '원단위 실적입력(일단위)' 로
   바뀌며 단가·비용·COD 가 추가됐다.
-- 한동안 `DB_에너지.xlsx`(행=항목, 열=날짜 전치형)를 중간 산출물로 두고 `build_dataset()`
+- 과거의 `DB_에너지.xlsx`는 행=항목·열=날짜인 전치형이었으나 2026-07-30 폐지했다.
   으로 재가공했으나, BEMS 파서가 tidy 형태를 그대로 읽을 수 있어(전치 감지 분기를 타지
   않고 머리글 부분매칭만으로 컬럼이 잡힘) 2026-07-30 폐지했다.
 - 수집 원본은 생산실적 유무와 관계없이 먼저 보존한다. 가공 단계에서
@@ -55,13 +55,13 @@ log = logging.getLogger(__name__)
 # 경로
 # ---------------------------------------------------------------------------
 # MIS 좌표 수집 결과를 가공과 무관하게 보존하는 원본 파일.
-DEFAULT_COLLECTION_PATH = Path(
-    sampled_db_path("RawDB_에너지_수집.xlsx", "ENERGY_COLLECTION_XLSX")
+DEFAULT_RAW_PATH = Path(
+    sampled_db_path("RawDB_에너지.xlsx", "ENERGY_RAW_XLSX")
 )
 
 # 가공 산출물 = 웹앱 입력 파일. env 이름은 BEMS `v5_common.PATH_ENERGY_SOURCE`
 # 와 동일한 `ENERGY_SOURCE_XLSX` 를 쓴다 — 한 변수로 양쪽이 같은 파일을 가리킨다.
-DEFAULT_RAW_PATH = Path(sampled_db_path("RawDB_에너지.xlsx", "ENERGY_SOURCE_XLSX"))
+DEFAULT_OUTPUT_PATH = Path(sampled_db_path("DB_에너지.xlsx", "ENERGY_SOURCE_XLSX"))
 DEFAULT_PRODUCTION_PATH = Path(
     sampled_db_path("DB_생산실적.xlsx", "PRODUCTION_DW_XLSX")
 )
@@ -508,7 +508,7 @@ def resync_production(
     recalculate: bool = True,
     dry_run: bool = False,
 ) -> tuple[dict[str, dict[str, int]], list[tuple[str, date, float | None, float]]]:
-    """MIS 접속 없이 `RawDB_에너지.xlsx` 의 믹스생산량만 생산실적으로 다시 맞춘다.
+    """MIS 접속 없이 `DB_에너지.xlsx` 의 믹스생산량만 생산실적으로 다시 맞춘다.
 
     수집(MIS 클릭)과 가공(엑셀 재집계)을 분리하기 위한 진입점. 생산실적이 늦게
     입력돼 수집 시점에 0 이 박혔거나, 구 '유틸리티 일자별' 화면 값이 남아 있는
@@ -522,9 +522,9 @@ def resync_production(
     Returns:
         (시트별 통계, 변경 목록[(시트, 날짜, 이전값, 새값)])
     """
-    raw_path = Path(raw_path or DEFAULT_RAW_PATH)
+    raw_path = Path(raw_path or DEFAULT_OUTPUT_PATH)
     if not raw_path.exists():
-        raise FileNotFoundError(f"RawDB 파일이 없습니다: {raw_path}")
+        raise FileNotFoundError(f"에너지 파일이 없습니다: {raw_path}")
 
     actuals = merge_production_actuals(production_path, production_raw_path)
     targets = set(sheet_names) if sheet_names else None
@@ -601,11 +601,11 @@ def resync_production(
 
     if recalculate and not _recalculate_with_excel(raw_path):
         raise RuntimeError(
-            "RawDB 저장은 완료됐지만 Excel 수식 재계산에 실패했습니다. "
+            "에너지 파일 저장은 완료됐지만 Excel 수식 재계산에 실패했습니다. "
             "파일 잠금과 Excel 설치 상태를 확인하세요."
         )
     log.info(
-        f"RawDB 생산량 재집계 완료: {raw_path}  "
+        f"DB_에너지 생산량 재집계 완료: {raw_path}  "
         f"({len(changes)}셀 변경 / 수식 {formula_updates}셀 보완)"
     )
     return stats, changes
@@ -618,7 +618,7 @@ def write_raw(records: dict[str, dict[date, dict[str, float]]],
               sync_production: bool = True,
               recalculate: bool = True,
               ensure_formulas: bool = True) -> Path:
-    """수집 결과를 RawDB_에너지.xlsx 에 upsert 한다 (날짜 1건 = 1행).
+    """에너지 데이터를 지정 파일에 upsert 한다 (날짜 1건 = 1행).
 
     Args:
         records: { 시트명: { date: { field_key: value } } }
@@ -629,7 +629,7 @@ def write_raw(records: dict[str, dict[date, dict[str, float]]],
         recalculate: True이면 저장 후 Excel COM으로 수식과 계산 캐시를 갱신한다.
         ensure_formulas: True이면 적재 행의 빈 원단위 수식을 보완한다.
     """
-    raw_path = Path(raw_path or DEFAULT_RAW_PATH)
+    raw_path = Path(raw_path or DEFAULT_OUTPUT_PATH)
     raw_path.parent.mkdir(parents=True, exist_ok=True)
 
     production_actuals: dict[tuple[str, str], float] | None = None
@@ -710,12 +710,12 @@ def write_raw(records: dict[str, dict[date, dict[str, float]]],
             formula_cnt = _ensure_unit_formulas(ws, touched_rows)
             if formula_cnt:
                 log.info(
-                    f"  [RawDB/{sheet_name}] 원단위 수식 {formula_cnt}셀 자동 보완"
+                    f"  [에너지/{sheet_name}] 원단위 수식 {formula_cnt}셀 자동 보완"
                 )
 
         total_new += new_cnt
         total_updated += upd_cnt
-        log.info(f"  [RawDB/{sheet_name}] 신규 {new_cnt}일 / 갱신 {upd_cnt}일")
+        log.info(f"  [에너지/{sheet_name}] 신규 {new_cnt}일 / 갱신 {upd_cnt}일")
 
     # 시트 순서를 공장 순서로 정렬 (수집 순서와 무관하게 항상 동일)
     order = {name: i for i, name in enumerate(FACTORY_SHEETS)}
@@ -734,10 +734,10 @@ def write_raw(records: dict[str, dict[date, dict[str, float]]],
         wb.close()
     if recalculate and not _recalculate_with_excel(raw_path):
         raise RuntimeError(
-            "RawDB 저장은 완료됐지만 Excel 수식 재계산에 실패했습니다. "
+            "에너지 파일 저장은 완료됐지만 Excel 수식 재계산에 실패했습니다. "
             "파일 잠금과 Excel 설치 상태를 확인하세요."
         )
-    log.info(f"RawDB 저장: {raw_path}  (신규 {total_new} / 갱신 {total_updated})")
+    log.info(f"에너지 파일 저장: {raw_path}  (신규 {total_new} / 갱신 {total_updated})")
     return raw_path
 
 
@@ -766,7 +766,7 @@ def write_collected_raw(
 
     return write_raw(
         filtered,
-        Path(collection_path or DEFAULT_COLLECTION_PATH),
+        Path(collection_path or DEFAULT_RAW_PATH),
         sync_production=False,
         recalculate=False,
         ensure_formulas=False,
@@ -780,7 +780,7 @@ def read_collected_raw(
     sheet_names: Sequence[str] | None = None,
 ) -> dict[str, dict[date, dict[str, float]]]:
     """영속 수집 파일에서 지정 기간·사업장의 MIS 원본 항목만 읽는다."""
-    path = Path(collection_path or DEFAULT_COLLECTION_PATH)
+    path = Path(collection_path or DEFAULT_RAW_PATH)
     if not path.exists():
         return {}
 
@@ -817,7 +817,7 @@ def process_collected_raw(
     dry_run: bool = False,
 ) -> tuple[int, dict[str, dict[str, int]], list[tuple[str, date, float | None, float]]]:
     """영속 수집 원본을 웹 입력 파일에 반영하고 생산량·원단위를 가공한다."""
-    target_path = Path(raw_path or DEFAULT_RAW_PATH)
+    target_path = Path(raw_path or DEFAULT_OUTPUT_PATH)
     records = read_collected_raw(
         collection_path,
         date_from=date_from,
@@ -871,7 +871,7 @@ def process_collected_raw(
     if not target_path.exists():
         raise FileNotFoundError(
             "에너지 수집 원본과 기존 가공 파일이 모두 없습니다: "
-            f"{collection_path or DEFAULT_COLLECTION_PATH} / {target_path}"
+            f"{collection_path or DEFAULT_RAW_PATH} / {target_path}"
         )
 
     stats, changes = resync_production(
@@ -888,10 +888,10 @@ def process_collected_raw(
 
 
 def read_raw(raw_path: Path | None = None) -> dict[str, dict[date, dict[str, float]]]:
-    """RawDB_에너지.xlsx 를 { 시트명: { date: { field_key: value } } } 로 읽는다."""
-    raw_path = Path(raw_path or DEFAULT_RAW_PATH)
+    """에너지 파일을 { 시트명: { date: { field_key: value } } } 로 읽는다."""
+    raw_path = Path(raw_path or DEFAULT_OUTPUT_PATH)
     if not raw_path.exists():
-        raise FileNotFoundError(f"RawDB 파일이 없습니다: {raw_path}")
+        raise FileNotFoundError(f"에너지 파일이 없습니다: {raw_path}")
 
     wb = openpyxl.load_workbook(raw_path, read_only=True, data_only=True)
     try:
