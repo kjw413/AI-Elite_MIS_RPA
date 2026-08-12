@@ -111,6 +111,49 @@ class _DummyWindow:
         pass
 
 
+class _GridGuardRPA(MISProductionRPA):
+    """MIS 없이 생산 그리드 중복 감지·재조회 흐름을 검증하는 스텁."""
+
+    def __init__(self, grids: dict[tuple[str, str], list[str]]) -> None:
+        self.grids = {key: list(values) for key, values in grids.items()}
+        self.current_factory = ""
+        self.current_category = ""
+        self.copy_counts: dict[tuple[str, str], int] = {}
+        self.query_counts: dict[tuple[str, str], int] = {}
+        self.start_date = "2026-08-01"
+        self.end_date = "2026-08-11"
+        self.dry_run = True
+        self.main_window = _DummyWindow()
+        self.duplicate_grids: list[tuple[str, str, str, str]] = []
+
+    def select_factory(self, factory: str) -> None:
+        self.current_factory = factory
+
+    def select_category(self, category: str) -> None:
+        self.current_category = category
+
+    def click_query(self) -> None:
+        key = (self.current_factory, self.current_category)
+        self.query_counts[key] = self.query_counts.get(key, 0) + 1
+
+    def copy_grid_data(self) -> str:
+        key = (self.current_factory, self.current_category)
+        self.copy_counts[key] = self.copy_counts.get(key, 0) + 1
+        values = self.grids[key]
+        if len(values) > 1:
+            return values.pop(0)
+        return values[0]
+
+
+def _production_grid(item_code: str, value: int) -> str:
+    return (
+        "Item Code,Item 명,물품대,누계계획,누계실적,누계진척율,01일\n"
+        f'"{item_code}","품목-{item_code}","1",'
+        f'"{value}","{value}","100.00","{value}"'
+    )
+
+
+
 class _StubProductionRPA(MISProductionRPA):
     def __init__(self, *, consolidation_succeeds: bool = True) -> None:
         self.requested_end_date = date(2026, 8, 2)
@@ -162,6 +205,69 @@ class _StubProductionRPA(MISProductionRPA):
 
 
 class ProductionCollectionFlowTests(unittest.TestCase):
+    def test_requeries_when_previous_factory_grid_is_copied(self) -> None:
+        f30_grid = _production_grid("130294", 100)
+        f40_grid = _production_grid("110388", 200)
+        rpa = _GridGuardRPA({
+            ("F30", "상온"): [f30_grid],
+            # 첫 복사는 F30 stale 데이터, 재조회 후 F40 정상 데이터
+            ("F40", "냉동"): [f30_grid, f40_grid],
+        })
+        targets = [
+            {
+                "sheet_name": "F30_상온",
+                "factory": "F30",
+                "category": "상온",
+                "suffix": "",
+            },
+            {
+                "sheet_name": "F40_냉동",
+                "factory": "F40",
+                "category": "냉동",
+                "suffix": "",
+            },
+        ]
+
+        with patch.object(production_rpa.time, "sleep", return_value=None):
+            success, failed, written = rpa._collect_period(targets)
+
+        self.assertEqual((success, failed, written), (2, 0, 0))
+        self.assertEqual(rpa.copy_counts[("F40", "냉동")], 2)
+        self.assertEqual(rpa.query_counts[("F40", "냉동")], 2)
+        self.assertEqual(rpa.duplicate_grids, [])
+
+    def test_rejects_persistent_previous_factory_grid(self) -> None:
+        f30_grid = _production_grid("130294", 100)
+        rpa = _GridGuardRPA({
+            ("F30", "상온"): [f30_grid],
+            ("F40", "냉동"): [f30_grid, f30_grid, f30_grid],
+        })
+        targets = [
+            {
+                "sheet_name": "F30_상온",
+                "factory": "F30",
+                "category": "상온",
+                "suffix": "",
+            },
+            {
+                "sheet_name": "F40_냉동",
+                "factory": "F40",
+                "category": "냉동",
+                "suffix": "",
+            },
+        ]
+
+        with patch.object(production_rpa.time, "sleep", return_value=None):
+            success, failed, written = rpa._collect_period(targets)
+
+        self.assertEqual((success, failed, written), (1, 1, 0))
+        self.assertEqual(rpa.copy_counts[("F40", "냉동")], 3)
+        self.assertEqual(
+            rpa.duplicate_grids,
+            [("2026-08-01", "2026-08-11", "F40_냉동", "F30_상온")],
+        )
+        self.assertTrue(rpa.report_duplicate_grids())
+
     def test_collects_all_periods_before_processing_snapshots(self) -> None:
         rpa = _StubProductionRPA()
         targets = [

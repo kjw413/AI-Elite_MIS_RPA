@@ -41,6 +41,7 @@ import sys
 import time
 import os
 import json
+import hashlib
 import shutil
 import logging
 import argparse
@@ -127,6 +128,7 @@ WAIT_DROPDOWN = 0.01     # 드롭다운 펼침 후 항목 클릭 전 대기
 WAIT_SCREEN_LOAD = 1.0   # 사이드바 메뉴 클릭 → MIS 화면 전환 로딩
 WAIT_QUERY_LOAD = 1.5    # 조회 버튼 → 그리드 데이터 로딩
 WAIT_COPY_CONFIRM = 0.4  # 복사 버튼 클릭 후 확인 팝업이 포커스를 받을 때까지 대기
+GRID_VERIFY_ATTEMPTS = 3  # 직전 그리드 재복사 감지 시 공장·카테고리 재선택 횟수
 
 
 # ---------------------------------------------------------------------------
@@ -340,6 +342,9 @@ class MISProductionRPA:
         self.coords = self._load_coords()
         self._pending_raw_snapshots: list[tuple[str, str, bytes]] = []
         self.collection_success_count = 0
+        # 좌표 선택/화면 로딩 실패로 이전 대상의 그리드를 다시 복사한 사례.
+        # (시작일, 종료일, 대상 시트, 실제로 복사된 이전 시트)
+        self.duplicate_grids: list[tuple[str, str, str, str]] = []
 
         self.app = None
         self.main_window = None
@@ -632,6 +637,58 @@ class MISProductionRPA:
             log.info(f"  확인 팝업 닫기 {action} (Enter)")
         time.sleep(WAIT_SHORT)
 
+    @staticmethod
+    def _grid_fingerprint(clipboard_text: str) -> str:
+        """줄바꿈 차이를 제거한 MIS 그리드 내용 지문을 만든다."""
+        normalized = (
+            clipboard_text.strip()
+            .replace("\r\n", "\n")
+            .replace("\r", "\n")
+        )
+        return hashlib.sha1(normalized.encode("utf-8", "replace")).hexdigest()
+
+    def _copy_verified_grid(
+        self,
+        target: dict,
+        fingerprints: dict[str, str],
+    ) -> tuple[str, str | None, bool]:
+        """앞서 수집한 그리드와 같으면 재조회하고, 계속 같으면 적재를 거부한다.
+
+        ClipboardSequenceNumber는 복사 동작 자체만 검증할 수 있다. MIS 조회가 아직
+        끝나지 않았거나 공장 선택이 적용되지 않으면 새 클립보드에도 직전 그리드가
+        정상 복사될 수 있으므로 내용 지문까지 비교한다.
+        """
+        for attempt in range(1, GRID_VERIFY_ATTEMPTS + 1):
+            clipboard_text = self.copy_grid_data()
+            if not clipboard_text.strip():
+                return "", None, False
+
+            fingerprint = self._grid_fingerprint(clipboard_text)
+            twin = fingerprints.get(fingerprint)
+            if twin is None:
+                return clipboard_text, fingerprint, False
+
+            if attempt >= GRID_VERIFY_ATTEMPTS:
+                log.error(
+                    f"  {target['sheet_name']}: 그리드가 '{twin}' 과(와) 완전히 동일 "
+                    f"({attempt}/{GRID_VERIFY_ATTEMPTS}) → 적재하지 않습니다."
+                )
+                self.duplicate_grids.append(
+                    (self.start_date, self.end_date, target["sheet_name"], twin)
+                )
+                return "", None, True
+
+            log.warning(
+                f"  {target['sheet_name']}: '{twin}' 그리드가 다시 복사됨 "
+                f"({attempt}/{GRID_VERIFY_ATTEMPTS}) → 공장·카테고리 재선택 후 재조회"
+            )
+            self.select_factory(target["factory"])
+            time.sleep(WAIT_SHORT)
+            self.select_category(target["category"])
+            self.click_query()
+
+        return "", None, False
+
     # -----------------------------------------------------------------------
     # Excel 백업 (단일 Raw 파일)
     # -----------------------------------------------------------------------
@@ -716,6 +773,9 @@ class MISProductionRPA:
         """현재 설정된 한 달 내 기간을 모든 대상 시트에서 수집한다."""
         period_marker = [PERIOD_MARKER, self.start_date, self.end_date]
         current_factory = None
+        # 같은 기간에 앞서 정상 수집한 그리드 지문. 직전 화면 재복사를 검출한다.
+        fingerprints: dict[str, str] = {}
+
         total_rows = 0
         success = 0
         failed = 0
@@ -736,10 +796,19 @@ class MISProductionRPA:
 
                 self.select_category(target["category"])
                 self.click_query()
-                clipboard_text = self.copy_grid_data()
+                (
+                    clipboard_text,
+                    fingerprint,
+                    duplicate_rejected,
+                ) = self._copy_verified_grid(
+                    target, fingerprints
+                )
 
                 if not clipboard_text.strip():
-                    log.warning("  데이터 없음 → 스킵")
+                    if duplicate_rejected:
+                        log.warning("  중복 그리드 거부 → 기존 시트 유지")
+                    else:
+                        log.warning("  데이터 없음 → 스킵")
                     failed += 1
                     continue
 
@@ -748,6 +817,9 @@ class MISProductionRPA:
                     log.warning("  파싱 결과 없음 → 스킵")
                     failed += 1
                     continue
+
+                if fingerprint is not None:
+                    fingerprints[fingerprint] = target["sheet_name"]
 
                 rows_with_marker = [period_marker] + rows
                 if self.dry_run:
@@ -790,6 +862,7 @@ class MISProductionRPA:
 
         self._pending_raw_snapshots = []
         self.collection_success_count = 0
+        self.duplicate_grids = []
 
         targets = discover_targets(RAW_FILE)
         if not targets:
@@ -840,7 +913,24 @@ class MISProductionRPA:
         log.info("=" * 60)
 
         self.collection_success_count = success
+        self.report_duplicate_grids()
         return success > 0
+
+    def report_duplicate_grids(self) -> bool:
+        """이전 대상 그리드가 반복 복사되어 적재를 거부한 시트를 요약한다."""
+        if not self.duplicate_grids:
+            return False
+        log.error(
+            f"⚠ 이전 생산 그리드 재복사 {len(self.duplicate_grids)}건 "
+            "— 해당 시트는 기존 RawDB 내용을 보존했습니다:"
+        )
+        for start, end, sheet_name, twin in self.duplicate_grids:
+            log.error(f"    [{start}~{end}] {sheet_name} = {twin} 의 그리드")
+        log.error(
+            "  → production_coords.json의 factory/category 좌표와 "
+            "query_load 대기를 확인하세요."
+        )
+        return True
 
     def _capture_raw_snapshot(self) -> None:
         """현재 월 Raw 파일을 메모리에 보존해 다음 월 수집의 덮어쓰기를 막는다."""
