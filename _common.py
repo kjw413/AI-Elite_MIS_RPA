@@ -21,7 +21,7 @@ import logging
 import os
 import sys
 import time
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import openpyxl
@@ -81,6 +81,62 @@ def month_bounds(start: str | None, end: str | None) -> tuple[date | None, date 
     if date_from and date_to and date_from > date_to:
         raise SystemExit(f"시작({start}) 이 종료({end}) 보다 늦습니다.")
     return date_from, date_to
+
+def parse_iso_date(value: str | date, label: str = "일자") -> date:
+    """Parse YYYY-MM-DD input with a consistent user-facing error."""
+    if isinstance(value, date):
+        return value
+    try:
+        return date.fromisoformat(str(value).strip())
+    except (TypeError, ValueError) as exc:
+        raise SystemExit(
+            f"{label} 형식이 잘못됐습니다: '{value}' (예: 2026-01-01)"
+        ) from exc
+
+
+def _parse_date_boundary(value: str | date, label: str, end_of_month: bool) -> date:
+    if isinstance(value, date):
+        return value
+    text = str(value).strip()
+    if len(text) == 7:
+        year, month = parse_year_month(text)
+        day = calendar.monthrange(year, month)[1] if end_of_month else 1
+        return date(year, month, day)
+    return parse_iso_date(text, label)
+
+
+def resolve_date_range(
+    start: str | date | None,
+    end: str | date | None,
+    *,
+    default_end: date | None = None,
+) -> tuple[date, date]:
+    """Resolve an inclusive range; blanks default to month-start through D-1."""
+    fallback_end = default_end or (date.today() - timedelta(days=1))
+    resolved_end = (
+        _parse_date_boundary(end, "종료일", True) if end else fallback_end
+    )
+    resolved_start = (
+        _parse_date_boundary(start, "시작일", False) if start else resolved_end.replace(day=1)
+    )
+    if resolved_start > resolved_end:
+        raise SystemExit(f"시작일({resolved_start})이 종료일({resolved_end})보다 늦습니다.")
+    return resolved_start, resolved_end
+
+
+def split_date_range_by_month(start: date, end: date) -> list[tuple[date, date]]:
+    """Split an inclusive date range into MIS-safe single-month periods."""
+    if start > end:
+        raise ValueError(f"조회 기간 오류: {start} > {end}")
+
+    periods: list[tuple[date, date]] = []
+    current = start
+    while current <= end:
+        last_day = calendar.monthrange(current.year, current.month)[1]
+        period_end = min(end, date(current.year, current.month, last_day))
+        periods.append((current, period_end))
+        current = period_end + timedelta(days=1)
+    return periods
 
 
 # ---------------------------------------------------------------------------

@@ -24,6 +24,7 @@ import logging
 import sys
 from datetime import datetime
 from pathlib import Path
+from _common import resolve_date_range
 
 try:
     sys.stdout.reconfigure(encoding="utf-8")
@@ -90,13 +91,27 @@ def main() -> int:
     )
     ap.add_argument("--date", type=str, default=None,
                     help="기준 종료일 (YYYY-MM-DD). 미지정 시 D-1 자동.")
+    ap.add_argument("--from", dest="date_from", default=None,
+                    help="공통 조회 시작일 (YYYY-MM-DD). 미지정 시 종료월 1일.")
+    ap.add_argument("--to", dest="date_to", default=None,
+                    help="공통 조회 종료일 (YYYY-MM-DD). 미지정 시 어제.")
     ap.add_argument("--dry-run", action="store_true",
                     help="MIS 조회만 — Excel/DB 미기록.")
     args, _unknown = ap.parse_known_args()
 
+    if args.date and (args.date_from or args.date_to):
+        raise SystemExit("--date 는 --from/--to 와 함께 사용할 수 없습니다.")
+    common_from = common_to = None
+    if not args.date:
+        range_start, range_end = resolve_date_range(args.date_from, args.date_to)
+        common_from = range_start.isoformat()
+        common_to = range_end.isoformat()
+
     header(f"MIS 3종 RPA 자동 실행 — 시작 {datetime.now():%Y-%m-%d %H:%M:%S}")
     log.info(f"메인 로그: {MAIN_LOG}")
-    log.info(f"공통 인자: --date={args.date}  --dry-run={args.dry_run}")
+    log.info(
+        f"공통 기간: {common_from or '해당 월 1일'} ~ {common_to or args.date}"
+    )
 
     # RPA 모듈 import — 이 시점에 핸들러는 이미 root 에 부착돼있음
     from production_daily_rpa import MISProductionRPA
@@ -114,6 +129,8 @@ def main() -> int:
         ref_date=args.date,
         dry_run=args.dry_run,
         build_dw=False,
+        date_from=common_from,
+        date_to=common_to,
     )
     rc_prod_collect = _run_rpa_safe("생산실적 수집", prod.collect)
 
@@ -127,10 +144,14 @@ def main() -> int:
 
     # [수집 2/3] 유틸리티 — MIS 연결 재사용
     header("[수집 2/3] 유틸리티 (연결 재사용)")
-    # 유틸리티는 기준년월만 받으므로, 공통 기준 종료일의 YYYY-MM을 전달한다.
-    # --date 미지정 때는 기존처럼 유틸리티가 D-1 기준으로 계산한다.
+    # 구 --date 는 월 단위 호환, 새 --from/--to 는 정확한 가공 범위로 전달한다.
     utility_year_month = args.date[:7] if args.date else None
-    util = MISUtilityRPA(year_month=utility_year_month, dry_run=args.dry_run)
+    util = MISUtilityRPA(
+        year_month=utility_year_month,
+        date_from=common_from,
+        date_to=common_to,
+        dry_run=args.dry_run,
+    )
     if can_share:
         util.attach_existing_window(shared_app, shared_window)
     rc_util_collect = _run_rpa_safe("유틸리티 수집", util.collect)
@@ -141,6 +162,8 @@ def main() -> int:
         ref_date=args.date,
         dry_run=args.dry_run,
         build_db=False,
+        date_from=common_from,
+        date_to=common_to,
     )
     if can_share:
         wip.attach_existing_window(shared_app, shared_window)

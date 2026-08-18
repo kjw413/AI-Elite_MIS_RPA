@@ -34,8 +34,29 @@ if errorlevel 1 (
     exit /b 9
 )
 
+REM Explicit command-line args bypass the interactive prompt.
+if not "%~1"=="" goto :run_with_args
+
+echo 조회 기간을 입력하세요. 입력한 기간이 생산실적·에너지·재공품에 공통 적용됩니다.
+echo 둘 다 비우면 이번 달 1일 ~ 어제로 실행됩니다.
+echo 예: 2026년 전체 복구 시작일 = 2026-01-01
+set "DATE_FROM="
+set "DATE_TO="
+set /p DATE_FROM=시작일 (YYYY-MM-DD, Enter=기본값):
+set /p DATE_TO=종료일 (YYYY-MM-DD, Enter=어제):
+
+set "DATE_ARGS="
+if not "!DATE_FROM!"=="" set "DATE_ARGS=--from !DATE_FROM!"
+if not "!DATE_TO!"=="" set "DATE_ARGS=!DATE_ARGS! --to !DATE_TO!"
+python -u "%~dp0run_all_rpa.py" !DATE_ARGS!
+set "FINAL=!errorlevel!"
+goto :after_run
+
+:run_with_args
 python -u "%~dp0run_all_rpa.py" %*
-set FINAL=%errorlevel%
+set "FINAL=!errorlevel!"
+
+:after_run
 
 echo.
 echo ============================================================

@@ -17,10 +17,12 @@ class _Window:
 class RunAllTwoPhaseTests(unittest.TestCase):
     def test_all_collection_finishes_before_any_processing_starts(self) -> None:
         events: list[str] = []
+        created: dict[str, dict] = {}
         window = _Window()
 
         class Production:
             def __init__(self, **kwargs):
+                created["production"] = kwargs
                 self.app = object()
                 self.main_window = window
 
@@ -34,7 +36,7 @@ class RunAllTwoPhaseTests(unittest.TestCase):
 
         class Utility:
             def __init__(self, **kwargs):
-                pass
+                created["utility"] = kwargs
 
             def attach_existing_window(self, app, main_window):
                 self.main_window = main_window
@@ -49,7 +51,7 @@ class RunAllTwoPhaseTests(unittest.TestCase):
 
         class WIP:
             def __init__(self, **kwargs):
-                pass
+                created["wip"] = kwargs
 
             def attach_existing_window(self, app, main_window):
                 self.main_window = main_window
@@ -67,7 +69,12 @@ class RunAllTwoPhaseTests(unittest.TestCase):
             "utility_daily_rpa": types.SimpleNamespace(MISUtilityRPA=Utility),
             "wip_daily_rpa": types.SimpleNamespace(MISWIPRPA=WIP),
         }
-        args = Namespace(date=None, dry_run=False)
+        args = Namespace(
+            date=None,
+            date_from="2026-01-01",
+            date_to="2026-03-15",
+            dry_run=False,
+        )
 
         with (
             patch.dict(sys.modules, modules),
@@ -91,6 +98,10 @@ class RunAllTwoPhaseTests(unittest.TestCase):
                 "wip.process",
             ],
         )
+        for rpa_name in ("production", "utility", "wip"):
+            self.assertEqual(created[rpa_name]["date_from"], "2026-01-01")
+            self.assertEqual(created[rpa_name]["date_to"], "2026-03-15")
+
 
     def test_utility_processing_waits_for_successful_production_processing(self) -> None:
         events: list[str] = []
@@ -144,7 +155,7 @@ class RunAllTwoPhaseTests(unittest.TestCase):
             "utility_daily_rpa": types.SimpleNamespace(MISUtilityRPA=Utility),
             "wip_daily_rpa": types.SimpleNamespace(MISWIPRPA=WIP),
         }
-        args = Namespace(date=None, dry_run=False)
+        args = Namespace(date=None, date_from=None, date_to=None, dry_run=False)
 
         with (
             patch.dict(sys.modules, modules),

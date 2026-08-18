@@ -68,6 +68,7 @@ from _common import (
     parse_clipboard_rows,
     paste_to_sheet,
     sampled_db_path,
+    resolve_date_range,
     wait_for_clipboard_change,
 )
 
@@ -144,25 +145,37 @@ class MISWIPRPA:
     def __init__(
         self,
         ref_date: str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
         dry_run: bool = False,
         build_db: bool = True,
     ):
-        if ref_date is None:
-            d = datetime.now() - timedelta(days=1)
-        else:
-            d = datetime.strptime(ref_date, "%Y-%m-%d")
+        if ref_date is not None and (date_from is not None or date_to is not None):
+            raise SystemExit("--date 는 --from/--to 와 함께 사용할 수 없습니다.")
 
-        self.end_date_obj = d
-        month_start = d.replace(day=1)
+        default_end = (datetime.now() - timedelta(days=1)).date()
+        requested_start, requested_end = resolve_date_range(
+            date_from,
+            date_to or ref_date,
+            default_end=default_end,
+        )
+        self.end_date_obj = datetime(
+            requested_end.year, requested_end.month, requested_end.day
+        )
+        month_start = self.end_date_obj.replace(day=1)
 
         # 최소 3일 조회 보장.
         # WIP_refactoring.get_update_period 가 양 끝 날짜를 부분 데이터 보호 차원에서
         # 제외하므로 (옵션 B), 기간이 3일 미만이면 update window 가 비거나 폴백으로
         # 양 끝 제외가 무력화된다. 기준일이 월 1·2일이면 month_start 만으로는 1~2일
         # 폭이므로 직전 월까지 끌어와 최소 3일을 확보한다.
-        MIN_SPAN_DAYS = 3
-        min_start = d - timedelta(days=MIN_SPAN_DAYS - 1)
-        self.start_date_obj = min(month_start, min_start)
+        if date_from is not None:
+            self.start_date_obj = datetime(
+                requested_start.year, requested_start.month, requested_start.day
+            )
+        else:
+            min_start = self.end_date_obj - timedelta(days=3 - 1)
+            self.start_date_obj = min(month_start, min_start)
 
         self.start_date = self.start_date_obj.strftime("%Y-%m-%d")
         self.end_date = self.end_date_obj.strftime("%Y-%m-%d")
@@ -621,6 +634,14 @@ def main():
         help="기준 종료일 (YYYY-MM-DD). 미지정 시 D-1 자동. 시작일은 해당 월 1일."
     )
     parser.add_argument(
+        "--from", dest="date_from", default=None,
+        help="조회 시작일 (YYYY-MM-DD). 미지정 시 종료일이 속한 달의 1일"
+    )
+    parser.add_argument(
+        "--to", dest="date_to", default=None,
+        help="조회 종료일 (YYYY-MM-DD). 미지정 시 어제"
+    )
+    parser.add_argument(
         "--dry-run", action="store_true",
         help="MIS 조회만 실행, Excel 기록하지 않음 (DB 통합도 생략)"
     )
@@ -631,9 +652,19 @@ def main():
              "(가공은 wip_refactoring.py 로 별도 수행)"
     )
     args = parser.parse_args()
+    if args.date and (args.date_from or args.date_to):
+        raise SystemExit("--date 는 --from/--to 와 함께 사용할 수 없습니다.")
+    date_from = args.date_from
+    date_to = args.date_to
+    if args.date is None:
+        resolved_start, resolved_end = resolve_date_range(date_from, date_to)
+        date_from = resolved_start.isoformat()
+        date_to = resolved_end.isoformat()
 
     rpa = MISWIPRPA(
         ref_date=args.date,
+        date_from=date_from,
+        date_to=date_to,
         dry_run=args.dry_run,
         build_db=not args.skip_build,
     )

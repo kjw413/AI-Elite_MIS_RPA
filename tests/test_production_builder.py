@@ -7,6 +7,7 @@ from __future__ import annotations
 import sys
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 import pandas as pd
 from openpyxl import Workbook, load_workbook
@@ -72,6 +73,7 @@ def main() -> int:
         ]),
     })
     daily, saved = svc.build_dataset(raw_path=raw, output_path=out)
+    check(not (tmp / "backup").exists(), "최초 DB 생성 시 불필요한 백업 없음")
 
     wb = load_workbook(out)
     sheets = set(wb.sheetnames)
@@ -111,14 +113,41 @@ def main() -> int:
     pl = plan[(plan["품목코드"].astype(str) == "260014") & (plan["연월"].astype(str) == "2026-05")]
     check(len(pl) == 1 and pl.iloc[0]["공장"] == "남양주1" and abs(float(pl.iloc[0]["계획량"]) - 300) < 1e-6,
           "계획 260014 2026-05 = 300 @남양주1")
+    wb.close()
 
     base_may_rows = len(daily)
-    backup = tmp / "DB_생산실적.bak.20260601_000000.xlsx"
-    with pd.ExcelWriter(backup, engine="openpyxl") as writer:
-        _read_sheet(out, svc.DAILY_SHEET).to_excel(writer, sheet_name=svc.DAILY_SHEET, index=False)
-        _read_sheet(out, svc.MASTER_SHEET).to_excel(writer, sheet_name=svc.MASTER_SHEET, index=False)
-        _read_sheet(out, svc.PLAN_SHEET).to_excel(writer, sheet_name=svc.PLAN_SHEET, index=False)
+    first_db_bytes = out.read_bytes()
+    svc.build_dataset(raw_path=raw, output_path=out)
+    backups = sorted((tmp / "backup").glob("DB_생산실적_backup_*.xlsx"))
+    check(len(backups) == 1, "재생성 전 backup/DB_생산실적_backup_시각.xlsx 생성")
+    check(bool(backups) and backups[0].read_bytes() == first_db_bytes,
+          "백업 파일은 교체 전 기존 DB와 동일")
+    check(bool(backups) and svc._latest_valid_backup(out) == backups[0],
+          "backup/ 규칙의 최신 정상본을 손상 복구에 사용")
+
+    # 백업에 실패하면 새 임시본으로 기존 DB를 덮어쓰지 않는다.
+    protected = tmp / "DB_생산실적_백업실패검증.xlsx"
+    Workbook().save(protected)
+    protected_bytes = protected.read_bytes()
+
+    def _write_replacement(target: Path) -> None:
+        wb_replacement = Workbook()
+        wb_replacement.active["A1"] = "replacement"
+        wb_replacement.save(target)
+
+    backup_failure_raised = False
+    try:
+        with patch.object(svc.shutil, "copy2", side_effect=OSError("mock backup failure")):
+            svc._write_xlsx_atomically(protected, _write_replacement)
+    except RuntimeError:
+        backup_failure_raised = True
+    check(backup_failure_raised, "백업 실패 시 DB 교체 중단")
+    check(protected.read_bytes() == protected_bytes, "백업 실패 시 기존 DB 원본 유지")
+    check(not list(tmp.glob(".DB_생산실적_백업실패검증.*.xlsx")),
+          "백업 실패 후 임시 파일 정리")
+    # 현재 DB를 손상시킨 뒤 backup/의 최신 정상본으로 이력이 복구되는지 검증한다.
     out.write_bytes(b"PK\x03\x04partial xlsx without central directory")
+
 
     # ── 2차 빌드 (이력 병합): 2026-06 김해 새 데이터 + 2026-05 김해 정정 ──
     print("\n[2차 빌드] 이력 병합 (2026-06 신규 + 2026-05 정정)")

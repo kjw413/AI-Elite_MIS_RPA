@@ -134,6 +134,20 @@ class UtilityCollectionMonthTests(unittest.TestCase):
         self.assertFalse(rpa.auto_recover_missing_dates)
         self.assertEqual(rpa.year_months, ["2026-08"])
 
+    def test_explicit_date_range_maps_to_months_and_keeps_exact_filter(self) -> None:
+        with patch.object(MISUtilityRPA, "_load_coords", return_value={}):
+            rpa = MISUtilityRPA(
+                date_from="2026-01-15",
+                date_to="2026-03-02",
+                dry_run=True,
+                org_codes=["F20"],
+            )
+
+        self.assertFalse(rpa.auto_recover_missing_dates)
+        self.assertEqual(rpa.year_months, ["2026-01", "2026-02", "2026-03"])
+        self.assertEqual(rpa.requested_date_from, date(2026, 1, 15))
+        self.assertEqual(rpa.requested_date_to, date(2026, 3, 2))
+
     def test_collection_persists_month_before_independent_processing(self) -> None:
         class Window:
             def set_focus(self):

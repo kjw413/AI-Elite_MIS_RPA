@@ -76,6 +76,8 @@ from _common import (
     parse_clipboard_rows,
     paste_to_sheet,
     sampled_db_path,
+    resolve_date_range,
+    split_date_range_by_month,
     wait_for_clipboard_change,
 )
 
@@ -320,21 +322,28 @@ class MISProductionRPA:
     def __init__(
         self,
         ref_date: str = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
         dry_run: bool = False,
         build_dw: bool = True,
         dw_output: str | None = None,
     ):
-        self.auto_recover_missing_dates = ref_date is None
-        if ref_date is None:
-            d = datetime.now() - timedelta(days=1)
-        else:
-            d = datetime.strptime(ref_date, "%Y-%m-%d")
+        if ref_date is not None and (date_from is not None or date_to is not None):
+            raise SystemExit("--date 는 --from/--to 와 함께 사용할 수 없습니다.")
 
-        self.requested_end_date = d.date()
-        self._set_collection_period(
-            self.requested_end_date.replace(day=1),
-            self.requested_end_date,
+        self.auto_recover_missing_dates = (
+            ref_date is None and date_from is None and date_to is None
         )
+        default_end = (datetime.now() - timedelta(days=1)).date()
+        self.requested_start_date, self.requested_end_date = resolve_date_range(
+            date_from,
+            date_to or ref_date,
+            default_end=default_end,
+        )
+        initial_start, initial_end = split_date_range_by_month(
+            self.requested_start_date, self.requested_end_date
+        )[0]
+        self._set_collection_period(initial_start, initial_end)
 
         self.dry_run = dry_run
         self.build_dw = build_dw
@@ -349,7 +358,7 @@ class MISProductionRPA:
         self.app = None
         self.main_window = None
         log.info("=== MIS 생산실적 RPA 초기화 ===")
-        log.info(f"  기준일자: {self.start_date} ~ {self.end_date}")
+        log.info(f"  요청기간: {self.requested_start_date} ~ {self.requested_end_date}")
         log.info(f"  시트명  : {self.sheet_name}")
         log.info(f"  Dry-run : {self.dry_run}")
         log.info(f"  DW 통합 : {'실행' if self.build_dw else '생략'}")
@@ -369,13 +378,13 @@ class MISProductionRPA:
 
     def _plan_collection_periods(self, targets: list[dict]) -> list[tuple[date, date]]:
         """자동 실행이면 시트별 마지막 수집일을 확인해 누락 구간을 추가한다."""
-        current_period = (
-            self.requested_end_date.replace(day=1),
-            self.requested_end_date,
+        requested_periods = split_date_range_by_month(
+            self.requested_start_date, self.requested_end_date
         )
-        # --date 는 명시된 월을 재수집하는 용도이므로 자동 누락 복구를 섞지 않는다.
+        # 명시 범위에는 자동 누락 복구를 섞지 않는다.
         if not self.auto_recover_missing_dates:
-            return [current_period]
+            return requested_periods
+        current_period = requested_periods[-1]
 
         output_path = self.dw_output or sampled_db_path(
             "DB_생산실적.xlsx", "PRODUCTION_DW_XLSX"
@@ -1003,8 +1012,15 @@ def main():
     )
     parser.add_argument(
         "--date", type=str, default=None,
-        help="기준 종료일 (YYYY-MM-DD). 미지정 시 D-1 및 이전 누락 자동 복구. "
-             "명시 시 해당 월 1일부터 지정일까지 재수집."
+        help="구 호환 기준 종료일 (YYYY-MM-DD). 해당 월 1일부터 지정일까지 재수집."
+    )
+    parser.add_argument(
+        "--from", dest="date_from", default=None,
+        help="조회 시작일 (YYYY-MM-DD). 미지정 시 종료일이 속한 달의 1일"
+    )
+    parser.add_argument(
+        "--to", dest="date_to", default=None,
+        help="조회 종료일 (YYYY-MM-DD). 미지정 시 어제"
     )
     parser.add_argument(
         "--dry-run", action="store_true",
@@ -1023,8 +1039,18 @@ def main():
              "(E:\\DB_MIS\\DB_생산실적.xlsx)"
     )
     args = parser.parse_args()
+    if args.date and (args.date_from or args.date_to):
+        raise SystemExit("--date 는 --from/--to 와 함께 사용할 수 없습니다.")
 
+    date_from = args.date_from
+    date_to = args.date_to
+    if args.date is None:
+        resolved_start, resolved_end = resolve_date_range(date_from, date_to)
+        date_from = resolved_start.isoformat()
+        date_to = resolved_end.isoformat()
     rpa = MISProductionRPA(
+        date_from=date_from,
+        date_to=date_to,
         ref_date=args.date,
         dry_run=args.dry_run,
         build_dw=not args.skip_build,

@@ -13,6 +13,17 @@ class _Window:
 
 
 class WIPPhaseSplitTests(unittest.TestCase):
+    def test_explicit_date_range_is_used_without_month_start_override(self) -> None:
+        with patch.object(MISWIPRPA, "_load_coords", return_value={}):
+            rpa = MISWIPRPA(
+                date_from="2026-01-15",
+                date_to="2026-03-02",
+                dry_run=True,
+            )
+
+        self.assertEqual(rpa.start_date, "2026-01-15")
+        self.assertEqual(rpa.end_date, "2026-03-02")
+
     def test_collection_writes_raw_but_defers_database_processing(self) -> None:
         rpa = object.__new__(MISWIPRPA)
         rpa.dry_run = False

@@ -74,6 +74,7 @@ from _common import (  # noqa: E402
     month_bounds,
     month_range,
     parse_year_month,
+    resolve_date_range,
     wait_for_clipboard_change,
 )
 
@@ -544,13 +545,35 @@ class MISUtilityRPA:
 
     def __init__(self, year_month: str = None, dry_run: bool = False,
                  org_codes: list[str] | None = None,
-                 year_months: list[str] | None = None):
+                 year_months: list[str] | None = None,
+                 date_from: str | date | None = None,
+                 date_to: str | date | None = None):
         self.dry_run = dry_run
         # 순회할 사업장 — None 이면 전체 (백필 시 일부만 재수집하는 용도)
         self.org_codes = list(org_codes) if org_codes else list(FACTORY_SHEET_MAP)
-        self.auto_recover_missing_dates = year_month is None and not year_months
+        self.auto_recover_missing_dates = (
+            year_month is None and not year_months
+            and date_from is None and date_to is None
+        )
+        self.requested_date_from = self.requested_date_to = None
 
-        if self.auto_recover_missing_dates:
+        if date_from is not None or date_to is not None:
+            if year_month is not None:
+                raise SystemExit("--ym 은 --from/--to 와 함께 사용할 수 없습니다.")
+            default_end = (datetime.now() - timedelta(days=1)).date()
+            self.requested_date_from, self.requested_date_to = resolve_date_range(
+                date_from,
+                date_to,
+                default_end=default_end,
+            )
+            self.year_months = (
+                list(year_months) if year_months else month_range(
+                    self.requested_date_from.strftime("%Y-%m"),
+                    self.requested_date_to.strftime("%Y-%m"),
+                )
+            )
+            self.year_month = self.year_months[-1]
+        elif self.auto_recover_missing_dates:
             end_date = (datetime.now() - timedelta(days=1)).date()
             self.year_month = end_date.strftime("%Y-%m")
             sheet_names = [FACTORY_SHEET_MAP[code] for code in self.org_codes]
@@ -599,6 +622,8 @@ class MISUtilityRPA:
             log.info(f"  기준년월: {self.year_months[0]} ~ {self.year_months[-1]} "
                      f"({len(self.year_months)}개월)")
         log.info(f"  Dry-run: {self.dry_run}")
+        if self.requested_date_from is not None:
+            log.info(f"  요청기간: {self.requested_date_from} ~ {self.requested_date_to}")
         log.info(f"  사업장: {', '.join(FACTORY_SHEET_MAP[c] for c in self.org_codes)}")
 
     # -----------------------------------------------------------------------
@@ -1010,9 +1035,11 @@ class MISUtilityRPA:
             log.error("이번 실행에서 저장된 유틸리티 수집 원본이 없습니다.")
             return False
 
-        date_from, date_to = month_bounds(
+        month_from, month_to = month_bounds(
             min(self.collected_months), max(self.collected_months)
         )
+        date_from = self.requested_date_from or month_from
+        date_to = self.requested_date_to or month_to
         sheet_names = [FACTORY_SHEET_MAP[code] for code in self.org_codes]
         log.info("=" * 60)
         log.info(
@@ -1085,12 +1112,12 @@ def main():
         help="기준년월 (YYYY-MM) 1개월. 미지정 시 D-1 자동 계산"
     )
     parser.add_argument(
-        "--from", dest="ym_from", default=None,
-        help="시작 기준년월 (YYYY-MM). 과거 데이터 수집 - --ym 대신 사용"
+        "--from", dest="date_from", default=None,
+        help="조회 시작일 (YYYY-MM-DD, 기존 YYYY-MM도 가능)"
     )
     parser.add_argument(
-        "--to", dest="ym_to", default=None,
-        help="종료 기준년월 (YYYY-MM). 기본: D-1 기준월"
+        "--to", dest="date_to", default=None,
+        help="조회 종료일 (YYYY-MM-DD, 기존 YYYY-MM도 가능). 미지정 시 어제"
     )
     parser.add_argument(
         "--resume", action="store_true",
@@ -1116,36 +1143,52 @@ def main():
     )
     args = parser.parse_args()
 
-    if args.ym and args.ym_from:
-        raise SystemExit("--ym 과 --from 은 함께 쓸 수 없습니다.")
-    if args.ym_to and not args.ym_from:
-        raise SystemExit("--to 는 --from 과 함께 써야 합니다.")
+    if args.ym and (args.date_from or args.date_to):
+        raise SystemExit("--ym 은 --from/--to 와 함께 쓸 수 없습니다.")
     if args.skip_build and args.dry_run:
         raise SystemExit("--skip-build 와 --dry-run 은 함께 쓸 필요가 없습니다 "
                          "(dry-run은 수집 원본도 기록하지 않습니다).")
 
     org_codes = resolve_org_codes(args.factories)
-    default_to = (datetime.now() - timedelta(days=1)).strftime("%Y-%m")
+    requested_from = requested_to = None
 
-    if args.ym_from:
-        # ── 과거 데이터 수집: 여러 달 순회 ──
+    if args.date_from or args.date_to:
         _setup_logging("backfill")
-        months = month_range(args.ym_from, args.ym_to or default_to)
+        default_end = (datetime.now() - timedelta(days=1)).date()
+        requested_from, requested_to = resolve_date_range(
+            args.date_from,
+            args.date_to,
+            default_end=default_end,
+        )
+        months = month_range(
+            requested_from.strftime("%Y-%m"),
+            requested_to.strftime("%Y-%m"),
+        )
         if args.resume:
             months = drop_collected_months(months, org_codes)
             if not months:
                 print("\n수집할 달이 없습니다 (모두 RawDB 에 존재).")
                 return
         confirm_plan(months, org_codes, args.yes)
-    else:
-        # ── 일일 수집: 1개월 ──
+    elif args.ym:
         _setup_logging()
-        # 미지정 자동 실행은 RPA 초기화 시 직전 누락 여부를 확인해 이전 월을
-        # 앞에 추가한다. --ym 명시 실행에는 자동 복구를 섞지 않는다.
-        months = [args.ym] if args.ym else None
+        months = [args.ym]
+    else:
+        _setup_logging()
+        # 인자 미지정: 정확히 현재 월 1일~어제.
+        default_end = (datetime.now() - timedelta(days=1)).date()
+        requested_from, requested_to = resolve_date_range(
+            None, None, default_end=default_end
+        )
+        months = [requested_from.strftime("%Y-%m")]
 
-    rpa = MISUtilityRPA(dry_run=args.dry_run, org_codes=org_codes,
-                        year_months=months)
+    rpa = MISUtilityRPA(
+        dry_run=args.dry_run,
+        org_codes=org_codes,
+        year_months=months,
+        date_from=requested_from,
+        date_to=requested_to,
+    )
     if args.skip_build:
         # 수집 원본은 영속 저장하고, 가공은 build_energy_dataset.py 가 담당한다.
         if not rpa.collect():

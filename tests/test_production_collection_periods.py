@@ -77,6 +77,21 @@ class ProductionCollectionPeriodTests(unittest.TestCase):
             [(date(2026, 8, 1), date(2026, 8, 2))],
         )
 
+    def test_explicit_range_is_split_into_month_safe_periods(self) -> None:
+        rpa = object.__new__(MISProductionRPA)
+        rpa.auto_recover_missing_dates = False
+        rpa.requested_start_date = date(2026, 1, 15)
+        rpa.requested_end_date = date(2026, 3, 2)
+
+        self.assertEqual(
+            rpa._plan_collection_periods([]),
+            [
+                (date(2026, 1, 15), date(2026, 1, 31)),
+                (date(2026, 2, 1), date(2026, 2, 28)),
+                (date(2026, 3, 1), date(2026, 3, 2)),
+            ],
+        )
+
     def test_loads_dates_for_each_output_sheet(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "production.xlsx"

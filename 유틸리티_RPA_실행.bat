@@ -1,6 +1,6 @@
 @REM MIS energy (utility) RPA launcher - unit-input screen
 @REM   No args  : collect previous day's month + recover missing previous date
-@REM   With args: passed straight through, e.g. --from 2024-01 --to 2026-06
+@REM   With args: passed straight through, e.g. --from 2026-01-01 --to 2026-08-17
 @echo off
 setlocal enabledelayedexpansion
 chcp 65001 >nul
@@ -27,34 +27,29 @@ if not "%~1"=="" (
     goto :done
 )
 
-echo Leave the start month blank for the daily run ^(with missing-date recovery^).
-set "YM_FROM="
-set "YM_TO="
-set /p YM_FROM=Start month for past collection (YYYY-MM, blank = daily run):
+echo 조회 기간을 입력하세요. 둘 다 비우면 이번 달 1일 ~ 어제로 실행됩니다.
+echo 예: 2026년 전체 복구 시작일 = 2026-01-01
+set "DATE_FROM="
+set "DATE_TO="
+set /p DATE_FROM=시작일 (YYYY-MM-DD, Enter=기본값):
+set /p DATE_TO=종료일 (YYYY-MM-DD, Enter=어제):
 
-if "!YM_FROM!"=="" (
-    echo.
-    echo [START] Daily run - previous day's month + missing-date recovery...
-    python utility_daily_rpa.py
-    goto :done
-)
-
-set /p YM_TO=End month (YYYY-MM, blank = previous day's month):
+set "DATE_ARGS="
+if not "!DATE_FROM!"=="" set "DATE_ARGS=--from !DATE_FROM!"
+if not "!DATE_TO!"=="" set "DATE_ARGS=!DATE_ARGS! --to !DATE_TO!"
 
 echo.
-echo [START] Past-month collection from !YM_FROM!...
-if "!YM_TO!"=="" (
-    python utility_daily_rpa.py --from !YM_FROM!
-) else (
-    python utility_daily_rpa.py --from !YM_FROM! --to !YM_TO!
-)
+echo [START] utility_daily_rpa.py !DATE_ARGS!
+python utility_daily_rpa.py !DATE_ARGS!
 
 :done
+set "FINAL=!errorlevel!"
 echo.
-if %errorlevel% equ 0 (
+if !FINAL! equ 0 (
     echo [OK] RPA completed successfully.
 ) else (
-    echo [ERROR] RPA failed. Exit code: %errorlevel%
+    echo [ERROR] RPA failed. Exit code: !FINAL!
 )
 echo.
 pause
+endlocal & exit /b %FINAL%

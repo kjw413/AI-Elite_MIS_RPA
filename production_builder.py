@@ -40,10 +40,11 @@ from __future__ import annotations
 import logging
 import os
 import re
+import shutil
 import tempfile
 import zipfile
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import Iterable
 
@@ -88,11 +89,22 @@ def _is_valid_xlsx(path: Path) -> bool:
     except Exception:
         return False
 
+def _xlsx_sheet_names(path: Path | str) -> list[str]:
+    """Read workbook sheet names without leaving a Windows file handle open."""
+    with pd.ExcelFile(path, engine="openpyxl") as workbook:
+        return list(workbook.sheet_names)
+
+
 
 def _latest_valid_backup(output_path: Path) -> Path | None:
-    pattern = f"{output_path.stem}.bak.*{output_path.suffix}"
+    backup_dir = output_path.parent / "backup"
+    canonical_pattern = f"{output_path.stem}_backup_*{output_path.suffix}"
+    legacy_pattern = f"{output_path.stem}.bak.*{output_path.suffix}"
     backups = sorted(
-        output_path.parent.glob(pattern),
+        [
+            *backup_dir.glob(canonical_pattern),
+            *output_path.parent.glob(legacy_pattern),
+        ],
         key=lambda p: p.stat().st_mtime,
         reverse=True,
     )
@@ -120,8 +132,40 @@ def _existing_db_source(output_path: Path) -> Path:
     return output_path
 
 
+def _backup_existing_xlsx(output_path: Path) -> Path | None:
+    """Copy a valid current workbook to backup/ before replacing it."""
+    if not output_path.exists():
+        return None
+    if not _is_valid_xlsx(output_path):
+        logger.warning(f"손상된 기존 DB는 백업하지 않습니다: {output_path}")
+        return None
+
+    backup_dir = output_path.parent / "backup"
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup_path = backup_dir / f"{output_path.stem}_backup_{stamp}{output_path.suffix}"
+
+    # 같은 초에 재실행해도 앞선 백업을 덮어쓰지 않는다.
+    sequence = 2
+    while backup_path.exists():
+        backup_path = backup_dir / (
+            f"{output_path.stem}_backup_{stamp}_{sequence}{output_path.suffix}"
+        )
+        sequence += 1
+
+    try:
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(output_path, backup_path)
+    except Exception as exc:
+        raise RuntimeError(
+            f"기존 DB 백업 실패로 교체를 중단합니다: {output_path}"
+        ) from exc
+
+    logger.info(f"백업 생성 완료: {backup_path}")
+    return backup_path
+
+
 def _write_xlsx_atomically(out_path: Path, write_func) -> Path:
-    """Write a complete workbook to a temp file, then replace the target."""
+    """Write and validate a workbook, back up the current file, then replace it."""
     out_path.parent.mkdir(parents=True, exist_ok=True)
     tmp = tempfile.NamedTemporaryFile(
         prefix=f".{out_path.stem}.",
@@ -136,6 +180,7 @@ def _write_xlsx_atomically(out_path: Path, write_func) -> Path:
         write_func(tmp_path)
         if not _is_valid_xlsx(tmp_path):
             raise ValueError(f"생성된 임시 xlsx 파일이 유효하지 않습니다: {tmp_path}")
+        _backup_existing_xlsx(out_path)
         os.replace(tmp_path, out_path)
     except PermissionError as exc:
         raise PermissionError(
@@ -789,7 +834,7 @@ def load_product_groups(ref_path: Path | str | None = None) -> list[ProductGroup
     if not ref.exists():
         return []
     try:
-        names = pd.ExcelFile(ref, engine="openpyxl").sheet_names
+        names = _xlsx_sheet_names(ref)
     except Exception as exc:
         logger.warning(f"품목군 정의 로드 실패({ref}): {exc}")
         return []
@@ -902,7 +947,7 @@ def consolidate_raw_file(raw_path: Path | str | None = None) -> pd.DataFrame:
     if not raw.exists():
         raise FileNotFoundError(f"Raw 파일이 없습니다: {raw}")
 
-    xl_sheets = pd.ExcelFile(raw, engine="openpyxl").sheet_names
+    xl_sheets = _xlsx_sheet_names(raw)
     parts: list[pd.DataFrame] = []
 
     for sn in xl_sheets:
@@ -956,7 +1001,7 @@ def _load_existing_factory_long(output_path: Path) -> dict[str, pd.DataFrame]:
     if not output_path.exists():
         return result
     try:
-        existing_sheets = pd.ExcelFile(output_path, engine="openpyxl").sheet_names
+        existing_sheets = _xlsx_sheet_names(output_path)
     except Exception:
         return result
 
@@ -1027,7 +1072,7 @@ def _load_existing_daily_long(output_path: Path) -> dict[str, pd.DataFrame]:
     if not output_path.exists():
         return result
     try:
-        sheets = pd.ExcelFile(output_path, engine="openpyxl").sheet_names
+        sheets = _xlsx_sheet_names(output_path)
     except Exception as exc:
         logger.warning(f"기존 daily 시트 목록 로드 실패({output_path}): {exc}")
         return result
@@ -1067,7 +1112,7 @@ def _load_existing_master(output_path: Path) -> dict[str, dict]:
     if not output_path.exists():
         return out
     try:
-        sheets = pd.ExcelFile(output_path, engine="openpyxl").sheet_names
+        sheets = _xlsx_sheet_names(output_path)
     except Exception as exc:
         logger.warning(f"기존 제품마스터 로드 실패({output_path}): {exc}")
         return out
@@ -1092,7 +1137,7 @@ def _load_existing_plan(output_path: Path) -> pd.DataFrame:
     if not output_path.exists():
         return pd.DataFrame(columns=PLAN_COLUMNS)
     try:
-        sheets = pd.ExcelFile(output_path, engine="openpyxl").sheet_names
+        sheets = _xlsx_sheet_names(output_path)
     except Exception as exc:
         logger.warning(f"기존 계획 로드 실패({output_path}): {exc}")
         return pd.DataFrame(columns=PLAN_COLUMNS)
