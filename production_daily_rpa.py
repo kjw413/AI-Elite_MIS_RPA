@@ -77,6 +77,7 @@ from _common import (
     paste_to_sheet,
     sampled_db_path,
     resolve_date_range,
+    resolve_factory_codes,
     split_date_range_by_month,
     wait_for_clipboard_change,
 )
@@ -327,6 +328,7 @@ class MISProductionRPA:
         dry_run: bool = False,
         build_dw: bool = True,
         dw_output: str | None = None,
+        factory_codes: list[str] | None = None,
     ):
         if ref_date is not None and (date_from is not None or date_to is not None):
             raise SystemExit("--date 는 --from/--to 와 함께 사용할 수 없습니다.")
@@ -348,6 +350,7 @@ class MISProductionRPA:
         self.dry_run = dry_run
         self.build_dw = build_dw
         self.dw_output = dw_output  # None → production_dw_service.DEFAULT_OUTPUT_PATH
+        self.factory_codes = list(factory_codes) if factory_codes else resolve_factory_codes(None)
         self.coords = self._load_coords()
         self._pending_raw_snapshots: list[tuple[str, str, bytes]] = []
         self.collection_success_count = 0
@@ -360,6 +363,7 @@ class MISProductionRPA:
         log.info("=== MIS 생산실적 RPA 초기화 ===")
         log.info(f"  요청기간: {self.requested_start_date} ~ {self.requested_end_date}")
         log.info(f"  시트명  : {self.sheet_name}")
+        log.info(f"  대상공장: {', '.join(self.factory_codes)}")
         log.info(f"  Dry-run : {self.dry_run}")
         log.info(f"  DW 통합 : {'실행' if self.build_dw else '생략'}")
 
@@ -744,7 +748,11 @@ class MISProductionRPA:
         out_path = self.dw_output or str(DEFAULT_OUTPUT_PATH)
         try:
             t0 = datetime.now()
-            df, saved_path = build_dataset(raw_path=raw_source, output_path=out_path)
+            df, saved_path = build_dataset(
+                raw_path=raw_source,
+                output_path=out_path,
+                factories=self.factory_codes,
+            )
             dt = (datetime.now() - t0).total_seconds()
         except Exception as exc:
             log.error(f"DW 통합 실패: {exc}", exc_info=True)
@@ -873,9 +881,15 @@ class MISProductionRPA:
         self.collection_success_count = 0
         self.duplicate_grids = []
 
-        targets = discover_targets(RAW_FILE)
+        targets = [
+            target for target in discover_targets(RAW_FILE)
+            if target["factory"] in self.factory_codes
+        ]
         if not targets:
-            log.error(f"작업 대상 시트가 없습니다: {RAW_FILE}")
+            log.error(
+                f"선택 공장({', '.join(self.factory_codes)})의 작업 대상 시트가 없습니다: "
+                f"{RAW_FILE}"
+            )
             return False
 
         periods = self._plan_collection_periods(targets)
@@ -1023,6 +1037,10 @@ def main():
         help="조회 종료일 (YYYY-MM-DD). 미지정 시 어제"
     )
     parser.add_argument(
+        "--factories", default=None,
+        help="대상 공장 코드/공장명 CSV (예: '광주' / 'F30' / '김해,광주'). 기본: 전체"
+    )
+    parser.add_argument(
         "--dry-run", action="store_true",
         help="MIS 조회만 실행, Excel 기록하지 않음 (DW 통합도 생략)"
     )
@@ -1055,6 +1073,7 @@ def main():
         dry_run=args.dry_run,
         build_dw=not args.skip_build,
         dw_output=args.dw_output,
+        factory_codes=resolve_factory_codes(args.factories),
     )
     rpa.run()
 

@@ -32,14 +32,16 @@ set "DATE_FROM="
 set "DATE_TO="
 set /p DATE_FROM=시작일 (YYYY-MM-DD, Enter=기본값):
 set /p DATE_TO=종료일 (YYYY-MM-DD, Enter=어제):
+set "FACTORIES="
+set /p FACTORIES=공장 (남양주/김해/광주/논산/경산 또는 F10~F50, Enter=전체):
 
 set "DATE_ARGS="
 if not "!DATE_FROM!"=="" set "DATE_ARGS=--from !DATE_FROM!"
 if not "!DATE_TO!"=="" set "DATE_ARGS=!DATE_ARGS! --to !DATE_TO!"
 
 echo.
-echo [START] wip_daily_rpa.py !DATE_ARGS!
-python wip_daily_rpa.py !DATE_ARGS!
+echo [START] wip_daily_rpa.py !DATE_ARGS! --factories "!FACTORIES!"
+python wip_daily_rpa.py !DATE_ARGS! --factories "!FACTORIES!"
 
 :done
 set "FINAL=!errorlevel!"

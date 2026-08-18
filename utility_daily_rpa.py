@@ -116,15 +116,12 @@ FACTORY_SHEET_MAP = OrderedDict([
 
 
 def resolve_org_codes(spec: str | None) -> list[str]:
-    """`--factories` 값을 사업장 코드 리스트로 변환한다.
+    """`--factories` 값을 에너지 화면의 사업장 코드 리스트로 변환한다.
 
-    코드(F40)와 한글 공장명(논산)을 모두 받는다. 코드만 받으면 오타가
-    조용히 다른 공장을 수집하게 되므로 알 수 없는 값은 즉시 중단한다.
-
-    >>> resolve_org_codes("논산,F50")
-    ['F40', 'F50']
+    통합 공장 코드 F10/남양주는 에너지 화면에서 F1A·F1B 두 사업장으로
+    확장한다. 기존의 F1A/F1B 또는 남양주1/남양주2 개별 입력도 유지한다.
     """
-    if not spec:
+    if not spec or str(spec).strip().upper() in {"전체", "ALL", "*"}:
         return list(FACTORY_SHEET_MAP)
 
     by_name = {name: code for code, name in FACTORY_SHEET_MAP.items()}
@@ -134,8 +131,11 @@ def resolve_org_codes(spec: str | None) -> list[str]:
         token = token.strip()
         if not token:
             continue
-        if token.upper() in FACTORY_SHEET_MAP:
-            selected.add(token.upper())
+        upper = token.upper()
+        if upper == "F10" or token == "남양주":
+            selected.update(("F1A", "F1B"))
+        elif upper in FACTORY_SHEET_MAP:
+            selected.add(upper)
         elif token in by_name:
             selected.add(by_name[token])
         else:
@@ -144,7 +144,7 @@ def resolve_org_codes(spec: str | None) -> list[str]:
     if unknown:
         raise SystemExit(
             f"알 수 없는 사업장: {unknown}\n"
-            f"  코드 또는 공장명을 쓰세요 — "
+            f"  코드 또는 공장명을 쓰세요 — F10=남양주, "
             + ", ".join(f"{c}={n}" for c, n in FACTORY_SHEET_MAP.items())
         )
     if not selected:

@@ -24,7 +24,7 @@ import logging
 import sys
 from datetime import datetime
 from pathlib import Path
-from _common import resolve_date_range
+from _common import resolve_date_range, resolve_factory_codes
 
 try:
     sys.stdout.reconfigure(encoding="utf-8")
@@ -95,6 +95,10 @@ def main() -> int:
                     help="공통 조회 시작일 (YYYY-MM-DD). 미지정 시 종료월 1일.")
     ap.add_argument("--to", dest="date_to", default=None,
                     help="공통 조회 종료일 (YYYY-MM-DD). 미지정 시 어제.")
+    ap.add_argument(
+        "--factories", default=None,
+        help="공통 대상 공장 코드/공장명 CSV (예: '광주' / 'F30'). 기본: 전체",
+    )
     ap.add_argument("--dry-run", action="store_true",
                     help="MIS 조회만 — Excel/DB 미기록.")
     args, _unknown = ap.parse_known_args()
@@ -107,11 +111,17 @@ def main() -> int:
         common_from = range_start.isoformat()
         common_to = range_end.isoformat()
 
+    factory_codes = resolve_factory_codes(args.factories)
+    utility_org_codes: list[str] = []
+    for factory in factory_codes:
+        utility_org_codes.extend(["F1A", "F1B"] if factory == "F10" else [factory])
+
     header(f"MIS 3종 RPA 자동 실행 — 시작 {datetime.now():%Y-%m-%d %H:%M:%S}")
     log.info(f"메인 로그: {MAIN_LOG}")
     log.info(
         f"공통 기간: {common_from or '해당 월 1일'} ~ {common_to or args.date}"
     )
+    log.info(f"공통 대상 공장: {', '.join(factory_codes)}")
 
     # RPA 모듈 import — 이 시점에 핸들러는 이미 root 에 부착돼있음
     from production_daily_rpa import MISProductionRPA
@@ -131,6 +141,7 @@ def main() -> int:
         build_dw=False,
         date_from=common_from,
         date_to=common_to,
+        factory_codes=factory_codes,
     )
     rc_prod_collect = _run_rpa_safe("생산실적 수집", prod.collect)
 
@@ -151,6 +162,7 @@ def main() -> int:
         date_from=common_from,
         date_to=common_to,
         dry_run=args.dry_run,
+        org_codes=utility_org_codes,
     )
     if can_share:
         util.attach_existing_window(shared_app, shared_window)
@@ -164,6 +176,7 @@ def main() -> int:
         build_db=False,
         date_from=common_from,
         date_to=common_to,
+        factory_codes=factory_codes,
     )
     if can_share:
         wip.attach_existing_window(shared_app, shared_window)

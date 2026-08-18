@@ -28,6 +28,7 @@ class WIPPhaseSplitTests(unittest.TestCase):
         rpa = object.__new__(MISWIPRPA)
         rpa.dry_run = False
         rpa.build_db = True
+        rpa.factory_codes = ["F20"]
         rpa.main_window = _Window()
         rpa.collection_success_count = 0
 

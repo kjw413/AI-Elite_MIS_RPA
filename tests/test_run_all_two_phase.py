@@ -73,6 +73,7 @@ class RunAllTwoPhaseTests(unittest.TestCase):
             date=None,
             date_from="2026-01-01",
             date_to="2026-03-15",
+            factories="광주",
             dry_run=False,
         )
 
@@ -101,6 +102,9 @@ class RunAllTwoPhaseTests(unittest.TestCase):
         for rpa_name in ("production", "utility", "wip"):
             self.assertEqual(created[rpa_name]["date_from"], "2026-01-01")
             self.assertEqual(created[rpa_name]["date_to"], "2026-03-15")
+        self.assertEqual(created["production"]["factory_codes"], ["F30"])
+        self.assertEqual(created["utility"]["org_codes"], ["F30"])
+        self.assertEqual(created["wip"]["factory_codes"], ["F30"])
 
 
     def test_utility_processing_waits_for_successful_production_processing(self) -> None:
@@ -155,7 +159,13 @@ class RunAllTwoPhaseTests(unittest.TestCase):
             "utility_daily_rpa": types.SimpleNamespace(MISUtilityRPA=Utility),
             "wip_daily_rpa": types.SimpleNamespace(MISWIPRPA=WIP),
         }
-        args = Namespace(date=None, date_from=None, date_to=None, dry_run=False)
+        args = Namespace(
+            date=None,
+            date_from=None,
+            date_to=None,
+            factories=None,
+            dry_run=False,
+        )
 
         with (
             patch.dict(sys.modules, modules),

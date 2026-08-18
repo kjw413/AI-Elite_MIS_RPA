@@ -69,6 +69,7 @@ from _common import (
     paste_to_sheet,
     sampled_db_path,
     resolve_date_range,
+    resolve_factory_codes,
     wait_for_clipboard_change,
 )
 
@@ -149,6 +150,7 @@ class MISWIPRPA:
         date_to: str | None = None,
         dry_run: bool = False,
         build_db: bool = True,
+        factory_codes: list[str] | None = None,
     ):
         if ref_date is not None and (date_from is not None or date_to is not None):
             raise SystemExit("--date 는 --from/--to 와 함께 사용할 수 없습니다.")
@@ -182,6 +184,7 @@ class MISWIPRPA:
 
         self.dry_run = dry_run
         self.build_db = build_db
+        self.factory_codes = list(factory_codes) if factory_codes else resolve_factory_codes(None)
         self.coords = self._load_coords()
         self.collection_success_count = 0
 
@@ -189,7 +192,11 @@ class MISWIPRPA:
         self.main_window = None
         log.info("=== MIS 재공품 RPA 초기화 ===")
         log.info(f"  기준일자: {self.start_date} ~ {self.end_date}")
-        log.info(f"  대상 시트: {sum((v for v in FACTORY_SHEET_MAP.values()), [])}")
+        target_sheets = sum(
+            (FACTORY_SHEET_MAP[code] for code in self.factory_codes), []
+        )
+        log.info(f"  대상 공장: {', '.join(self.factory_codes)}")
+        log.info(f"  대상 시트: {target_sheets}")
         log.info(f"  Dry-run : {self.dry_run}")
         log.info(f"  DB 통합 : {'실행' if self.build_db else '생략'}")
 
@@ -495,9 +502,13 @@ class MISWIPRPA:
 
         try:
             t0 = datetime.now()
+            # MIS F10 통합 조회는 DB에서 F10A/F10B 두 공장으로 분리된다.
+            plants: list[str] = []
+            for factory in self.factory_codes:
+                plants.extend(["F10A", "F10B"] if factory == "F10" else [factory])
             # main() 이 아니라 run_refactoring() — main() 은 argparse 진입점이라
             # 호출하면 이 스크립트의 sys.argv 를 파싱해 버린다.
-            WIP_refactoring.run_refactoring()
+            WIP_refactoring.run_refactoring(plants=plants)
             dt = (datetime.now() - t0).total_seconds()
         except Exception as exc:
             log.error(f"DB 통합 실패: {exc}", exc_info=True)
@@ -534,7 +545,8 @@ class MISWIPRPA:
         success = 0
         failed = 0
 
-        for factory, sheet_names in FACTORY_SHEET_MAP.items():
+        for factory in self.factory_codes:
+            sheet_names = FACTORY_SHEET_MAP[factory]
             log.info("=" * 50)
             log.info(f"▶ {factory} → 시트 {sheet_names}")
             log.info("=" * 50)
@@ -642,6 +654,10 @@ def main():
         help="조회 종료일 (YYYY-MM-DD). 미지정 시 어제"
     )
     parser.add_argument(
+        "--factories", default=None,
+        help="대상 공장 코드/공장명 CSV (예: '광주' / 'F30' / '김해,광주'). 기본: 전체"
+    )
+    parser.add_argument(
         "--dry-run", action="store_true",
         help="MIS 조회만 실행, Excel 기록하지 않음 (DB 통합도 생략)"
     )
@@ -667,6 +683,7 @@ def main():
         date_to=date_to,
         dry_run=args.dry_run,
         build_db=not args.skip_build,
+        factory_codes=resolve_factory_codes(args.factories),
     )
     rpa.run()
 

@@ -937,13 +937,19 @@ def _read_raw_sheet(raw_path: Path, sheet_name: str) -> tuple[date, date, pd.Dat
     return start, end, grid
 
 
-def consolidate_raw_file(raw_path: Path | str | None = None) -> pd.DataFrame:
+def consolidate_raw_file(
+    raw_path: Path | str | None = None,
+    factories: Iterable[str] | None = None,
+) -> pd.DataFrame:
     """Raw 파일의 모든 카테고리 시트를 파싱하여 tidy long(F-코드) DataFrame.
 
     각 시트는 최신 조회 月의 그리드만 담는다. parse_sheet 로 (F10 분리·category2
     추론·planned 포함) tidy long 생성 후, 마커 기간 [start, end] 로 클립한다.
     """
     raw = Path(raw_path) if raw_path else DEFAULT_RAW_PATH
+    allowed_factories = (
+        {_factory_to_parent(code) for code in factories} if factories else None
+    )
     if not raw.exists():
         raise FileNotFoundError(f"Raw 파일이 없습니다: {raw}")
 
@@ -956,6 +962,8 @@ def consolidate_raw_file(raw_path: Path | str | None = None) -> pd.DataFrame:
         meta = parse_meta_from_sheet(sn)
         if meta is None:
             logger.info(f"시트명 패턴 불일치 skip: {sn}")
+            continue
+        if allowed_factories is not None and meta.factory not in allowed_factories:
             continue
 
         read = _read_raw_sheet(raw, sn)
@@ -1217,8 +1225,16 @@ def _merge_plan(existing_plan: pd.DataFrame, new_df: pd.DataFrame) -> pd.DataFra
     new_plan = new_plan[PLAN_COLUMNS]
     new_plan["품목코드"] = new_plan["품목코드"].map(_clean_item_code)
 
-    replace_ym = set(new_plan["연월"])
-    kept = existing_plan[~existing_plan["연월"].isin(replace_ym)] if not existing_plan.empty else existing_plan
+    # 부분 공장 재수집에서는 같은 월의 미선택 공장 계획을 지우면 안 된다.
+    replace_keys = set(zip(new_plan["연월"], new_plan["공장"]))
+    if existing_plan.empty:
+        kept = existing_plan
+    else:
+        keep_mask = [
+            (ym, factory) not in replace_keys
+            for ym, factory in zip(existing_plan["연월"], existing_plan["공장"])
+        ]
+        kept = existing_plan.loc[keep_mask]
     out = pd.concat([kept, new_plan], ignore_index=True)
     return out.sort_values(["연월", "공장", "품목코드"]).reset_index(drop=True)
 
@@ -1373,6 +1389,7 @@ def build_dataset(
     output_path: Path | str | None = None,
     src_folder: Path | str | None = None,
     dry_run: bool = False,
+    factories: Iterable[str] | None = None,
 ) -> tuple[pd.DataFrame, Path]:
     """Raw 파일 → DB 파일 빌드 → (daily DataFrame, 출력 경로) 반환.
 
@@ -1393,7 +1410,7 @@ def build_dataset(
     out = Path(output_path) if output_path else DEFAULT_OUTPUT_PATH
     existing_source = _existing_db_source(out)
 
-    new_df = consolidate_raw_file(raw)
+    new_df = consolidate_raw_file(raw, factories=factories)
 
     existing_long = _load_existing_factory_long(existing_source)
     existing_master = _load_existing_master(existing_source)

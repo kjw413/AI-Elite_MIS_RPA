@@ -632,10 +632,17 @@ def format_worksheet(ws):
         ws.cell(row=row, column=1).number_format = "yyyy-mm-dd"
 
 
-def save_to_excel(sheet_df_map: Dict[str, pd.DataFrame], output_file: str):
+def save_to_excel(
+    sheet_df_map: Dict[str, pd.DataFrame],
+    output_file: str,
+    preserve_existing: bool = False,
+):
     ensure_parent_folder(output_file)
 
-    with pd.ExcelWriter(output_file, engine="openpyxl") as writer:
+    writer_kwargs = {"engine": "openpyxl"}
+    if preserve_existing and os.path.exists(output_file):
+        writer_kwargs.update(mode="a", if_sheet_exists="replace")
+    with pd.ExcelWriter(output_file, **writer_kwargs) as writer:
         for sheet_name, df in sheet_df_map.items():
             df.to_excel(writer, index=False, sheet_name=sheet_name)
 
@@ -734,7 +741,13 @@ def run_refactoring(
         log("DRY-RUN — 출력 파일을 쓰지 않습니다.")
     else:
         backup_output_file(output_file)
-        save_to_excel(final_by_sheet, output_file)
+        # 일부 공장 실행은 선택 시트만 교체하고 미선택 공장 시트를 그대로 둔다.
+        preserve_existing = set(plants) != set(PLANTS)
+        save_to_excel(
+            final_by_sheet,
+            output_file,
+            preserve_existing=preserve_existing,
+        )
 
     print()
     print("===== 실행 결과 =====")

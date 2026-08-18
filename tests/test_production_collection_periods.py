@@ -176,6 +176,7 @@ class _StubProductionRPA(MISProductionRPA):
         self.dry_run = False
         self.build_dw = False
         self.dw_output = None
+        self.factory_codes = ["F10"]
         self.main_window = _DummyWindow()
         self.collected_periods: list[tuple[str, str]] = []
         self.consolidation_calls = 0

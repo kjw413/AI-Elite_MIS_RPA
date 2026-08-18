@@ -63,8 +63,10 @@ class BatchPromptTests(unittest.TestCase):
                 text = (ROOT / filename).read_text(encoding="utf-8")
                 self.assertIn("set /p DATE_FROM=", text)
                 self.assertIn("set /p DATE_TO=", text)
+                self.assertIn("set /p FACTORIES=", text)
                 self.assertIn("--from !DATE_FROM!", text)
                 self.assertIn("--to !DATE_TO!", text)
+                self.assertIn('--factories "!FACTORIES!"', text)
                 self.assertIn('if not "%~1"==""', text)
 
 

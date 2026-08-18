@@ -140,6 +140,52 @@ def split_date_range_by_month(start: date, end: date) -> list[tuple[date, date]]
 
 
 # ---------------------------------------------------------------------------
+# 공장 인자 파싱 — 3종 RPA 공통 입력(F10/F20/F30/F40/F50 또는 한글명)
+# ---------------------------------------------------------------------------
+FACTORY_NAME_BY_CODE: dict[str, str] = {
+    "F10": "남양주",
+    "F20": "김해",
+    "F30": "광주",
+    "F40": "논산",
+    "F50": "경산",
+}
+
+
+def resolve_factory_codes(spec: str | None) -> list[str]:
+    """공장 CSV를 공통 부모 코드로 정규화한다. 미입력/전체는 모든 공장."""
+    all_codes = list(FACTORY_NAME_BY_CODE)
+    if spec is None or not str(spec).strip():
+        return all_codes
+
+    tokens = [token.strip() for token in str(spec).split(",") if token.strip()]
+    if len(tokens) == 1 and tokens[0].upper() in {"전체", "ALL", "*"}:
+        return all_codes
+
+    code_by_name = {name: code for code, name in FACTORY_NAME_BY_CODE.items()}
+    selected: set[str] = set()
+    unknown: list[str] = []
+    for token in tokens:
+        upper = token.upper()
+        if upper in FACTORY_NAME_BY_CODE:
+            selected.add(upper)
+        elif token in code_by_name:
+            selected.add(code_by_name[token])
+        else:
+            unknown.append(token)
+
+    if unknown or not selected:
+        valid = ", ".join(
+            f"{code}={name}" for code, name in FACTORY_NAME_BY_CODE.items()
+        )
+        bad = unknown or tokens
+        raise SystemExit(
+            f"알 수 없는 공장: {bad}\n  코드 또는 공장명을 쓰세요 — {valid}"
+        )
+
+    return [code for code in all_codes if code in selected]
+
+
+# ---------------------------------------------------------------------------
 # 빠른 raw mouse click — pywinauto UIA 의 click_input 오버헤드 우회
 # ---------------------------------------------------------------------------
 # pywinauto.BaseWrapper.click_input() 은 호출마다 내부적으로
