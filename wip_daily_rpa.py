@@ -495,7 +495,7 @@ class MISWIPRPA:
         log.info("DB 통합 단계 시작 (RawDB_재공품 → DB_재공품.xlsx)")
         log.info("=" * 60)
         try:
-            import wip_refactoring as WIP_refactoring
+            import WIP_refactoring
         except Exception as exc:
             log.error(f"WIP_refactoring import 실패: {exc}", exc_info=True)
             return False

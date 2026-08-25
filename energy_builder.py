@@ -23,8 +23,9 @@ MIS '원단위 실적입력(일단위)' 화면에서 수집한 에너지 실적�
   으로 재가공했으나, BEMS 파서가 tidy 형태를 그대로 읽을 수 있어(전치 감지 분기를 타지
   않고 머리글 부분매칭만으로 컬럼이 잡힘) 2026-07-30 폐지했다.
 - 수집 원본은 생산실적 유무와 관계없이 먼저 보존한다. 가공 단계에서
-  `RawDB_생산실적.xlsx`의 공장별 actual_qty를 우선 동기화하고 DB 파일로 과거 기간을
-  보완한다. 생산량이 없으면 최종 파일 가공만 중단해 빈 원단위를 만들지 않는다.
+  `RawDB_생산실적.xlsx`의 공장별 생산량을 우선 동기화하고 DB 파일로 과거 기간을
+  보완한다. 광주는 품목별 믹스 환산 후 합산하며, 생산량이 없으면 최종 파일 가공만
+  중단해 빈 원단위를 만들지 않는다.
 - 냉동·공압·전력·연료·용수 원단위는 Python에서 계산하지 않고 RawDB 수식으로
   관리한다. 빈 수식을 자동 보완한 뒤 Excel에서 전체 재계산·저장해 유틸리티 실적
   변경을 바로 반영한다.
@@ -80,7 +81,7 @@ class EnergyField:
     key: str        # 코드 내부 식별자
     label: str      # RawDB_에너지 열 머리글 (엑셀에 그대로 쓰이는 문자열)
     source: str     # 'unit_input' = MIS 원단위 실적입력 화면에서 수집
-                    # 'production' = 최신 생산 RawDB 우선 actual_qty 합계
+                    # 'production' = 최신 생산 RawDB 우선 믹스 환산 kg 합계
                     # 'formula'    = RawDB 엑셀 수식으로 계산하는 원단위
 
 
@@ -148,6 +149,30 @@ _PRODUCTION_RAW_CACHE_MTIME_NS: int | None = None
 _PRODUCTION_RAW_CACHE: dict[tuple[str, str], float] | None = None
 
 
+# 광주(F30) 품목별 믹스 환산계수. BEMS Next의
+# production_correction_service.py와 같은 기준을 사용한다. 129998/129999는 MIS
+# 생산실적에 재공품 성격으로 기록되는 품목이고, 260xxx는 재공품 품목이다.
+GWANGJU_FACTORY_CODE = FACTORY_KR_TO_CODE["광주"]
+GWANGJU_SKIM_MILK_MIX_FACTOR = 10.91954
+GWANGJU_WIP_MIX_CONVERSION: dict[str, float] = {
+    "260014": GWANGJU_SKIM_MILK_MIX_FACTOR,
+    "260016": 1.0,
+    "260039": 1.0,
+    "260042": 4.0,
+    "260047": 1.0,
+    "260351": 1.0,
+    "260352": 1.0,
+}
+GWANGJU_PRODUCTION_RECORDED_WIP_MIX_CONVERSION: dict[str, float] = {
+    "129998": GWANGJU_SKIM_MILK_MIX_FACTOR,
+    "129999": 1.0,
+}
+GWANGJU_MIX_CONVERSION: dict[str, float] = {
+    **GWANGJU_WIP_MIX_CONVERSION,
+    **GWANGJU_PRODUCTION_RECORDED_WIP_MIX_CONVERSION,
+}
+
+
 def _raw_column(field_key: str) -> int:
     return RAW_COLUMN_KEYS.index(field_key) + 2
 
@@ -186,6 +211,74 @@ def _as_date(value) -> date | None:
     return None
 
 
+def _item_code(value) -> str:
+    """엑셀 숫자/문자 품목코드를 비교 가능한 문자열로 정규화한다."""
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return str(value)
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    text = str(value).strip()
+    if text.endswith(".0"):
+        try:
+            number = float(text)
+        except ValueError:
+            pass
+        else:
+            if number.is_integer():
+                return str(int(number))
+    return text
+
+
+def _mix_equivalent_qty(factory: str, item_code, actual_qty: float) -> float:
+    """광주만 품목별 계수를 적용하고 다른 공장은 기존 수량을 그대로 돌려준다."""
+    amount = float(actual_qty)
+    if str(factory).strip() != GWANGJU_FACTORY_CODE:
+        return amount
+    factor = GWANGJU_MIX_CONVERSION.get(_item_code(item_code), 1.0)
+    return amount * factor
+
+
+def _aggregate_production_rows(rows) -> dict[tuple[str, str], float]:
+    """품목별 환산 후 공장·일자 합계를 만든다.
+
+    광주 daily의 동일한 (일자, 품목, 수량) 행이 여러 시트/경로에서 반복된 경우에는
+    한 번만 반영한다. 환산 전 수량과 환산 후 수량을 함께 더하지 않고, 각 원천 행은
+    환산된 값 하나로만 합계에 기여한다. 비광주는 기존 단순 합산을 유지한다.
+    """
+    actuals: dict[tuple[str, str], float] = {}
+    seen_gwangju_rows: set[tuple[str, str, float]] = set()
+    for day_value, factory_value, item_value, quantity_value in rows:
+        day_key = _date_key(day_value)
+        factory = str(factory_value or "").strip()
+        if not day_key or not factory or quantity_value is None:
+            continue
+        try:
+            amount = float(quantity_value)
+        except (TypeError, ValueError):
+            continue
+
+        item_code = _item_code(item_value)
+        if factory == GWANGJU_FACTORY_CODE:
+            duplicate_key = (day_key, item_code, amount)
+            if duplicate_key in seen_gwangju_rows:
+                log.warning(
+                    "광주 생산실적 중복 행 제외: %s / %s / %s",
+                    day_key, item_code or "(품목코드 없음)", amount,
+                )
+                continue
+            seen_gwangju_rows.add(duplicate_key)
+
+        key = (factory, day_key)
+        actuals[key] = actuals.get(key, 0.0) + _mix_equivalent_qty(
+            factory, item_code, amount
+        )
+    return actuals
+
+
 def _fill_internal_zero_days(actuals: dict[tuple[str, str], float]) -> None:
     """공장별 생산실적 범위 안의 미등장 날짜를 무생산(0kg)으로 명시한다."""
     ranges: dict[str, tuple[date, date]] = {}
@@ -206,7 +299,10 @@ def _fill_internal_zero_days(actuals: dict[tuple[str, str], float]) -> None:
 def _load_production_actuals(
     production_path: Path,
 ) -> dict[tuple[str, str], float]:
-    """DB_생산실적 daily를 {(공장코드, 날짜키): actual_qty 합계}로 읽는다."""
+    """DB_생산실적 daily를 공장·일자별 믹스 환산 kg 합계로 읽는다.
+
+    광주는 품목별 환산 후 합산하고, 다른 공장은 actual_qty를 그대로 합산한다.
+    """
     global _PRODUCTION_CACHE_PATH, _PRODUCTION_CACHE_MTIME_NS, _PRODUCTION_CACHE
 
     production_path = production_path.resolve()
@@ -241,19 +337,22 @@ def _load_production_actuals(
                 f"생산실적 daily 필수 컬럼 누락: {sorted(missing)} ({production_path})"
             )
 
-        actuals: dict[tuple[str, str], float] = {}
+        item_col = columns.get("item_code")
+        production_rows = []
         for row in rows:
-            day_key = _date_key(row[columns["date"]])
             factory = str(row[columns["factory"]] or "").strip()
-            value = row[columns["actual_qty"]]
-            if not day_key or not factory or value is None:
-                continue
-            try:
-                amount = float(value)
-            except (TypeError, ValueError):
-                continue
-            key = (factory, day_key)
-            actuals[key] = actuals.get(key, 0.0) + amount
+            if factory == GWANGJU_FACTORY_CODE and item_col is None:
+                raise ValueError(
+                    "광주 생산량 환산에 필요한 item_code 컬럼이 없습니다: "
+                    f"{production_path}"
+                )
+            production_rows.append((
+                row[columns["date"]],
+                factory,
+                row[item_col] if item_col is not None else None,
+                row[columns["actual_qty"]],
+            ))
+        actuals = _aggregate_production_rows(production_rows)
     finally:
         wb.close()
 
@@ -268,7 +367,10 @@ def _load_production_actuals(
 def _load_raw_production_actuals(
     production_raw_path: Path,
 ) -> dict[tuple[str, str], float]:
-    """최신 RawDB_생산실적 월 구간을 공장·일자별 합계로 읽는다."""
+    """최신 RawDB_생산실적 월 구간을 공장·일자별 믹스 환산 kg로 읽는다.
+
+    DB daily 로더와 동일하게 광주만 품목별 환산하고 다른 공장은 단순 합산한다.
+    """
     global _PRODUCTION_RAW_CACHE_PATH
     global _PRODUCTION_RAW_CACHE_MTIME_NS, _PRODUCTION_RAW_CACHE
 
@@ -287,13 +389,14 @@ def _load_raw_production_actuals(
     import production_builder
 
     daily = production_builder.consolidate_raw_file(production_raw_path)
-    actuals: dict[tuple[str, str], float] = {}
-    if not daily.empty:
-        grouped = daily.groupby(["factory", "date"], as_index=False)["actual_qty"].sum()
-        for row in grouped.itertuples(index=False):
-            day_key = _date_key(row.date)
-            if day_key:
-                actuals[(str(row.factory).strip(), day_key)] = float(row.actual_qty or 0.0)
+    actuals = _aggregate_production_rows(
+        (
+            (row.date, row.factory, row.item_code, row.actual_qty)
+            for row in daily.itertuples(index=False)
+        )
+        if not daily.empty
+        else ()
+    )
 
     # MIS 생산 화면이 무생산일 열을 생략해도, 각 시트의 기간 마커 안 날짜는 0kg로
     # 간주한다. 최신 종료일 이후 날짜는 만들지 않아 미수집 상태와 무생산을 구분한다.
@@ -445,9 +548,10 @@ def merge_production_actuals(
 ) -> dict[tuple[str, str], float]:
     """믹스생산량의 권위 값 {(공장코드, 'YY-MM-DD'): kg} 을 만든다.
 
-    기본은 `DB_생산실적.xlsx`(가공 완료본) 이고, 그 위에 `RawDB_생산실적.xlsx`(최신
-    수집분)를 덮어써 방금 수집·수정한 달을 반영한다. 수집과 가공이 분리돼 있어도
-    두 경로가 같은 규칙을 쓰도록 한 곳에 모아 둔다.
+    두 입력 모두 광주 품목별 환산을 끝낸 공장·일자 합계다. 기본은
+    `DB_생산실적.xlsx`(가공 완료본)이고, 그 위에 `RawDB_생산실적.xlsx`(최신 수집분)를
+    공장·일자 단위로 덮어써 같은 실적이 두 번 합산되지 않게 한다. 수집과 가공이
+    분리돼 있어도 두 경로가 같은 규칙을 쓴다.
 
     production_path 만 지정하면(테스트 등) 최신 RawDB 는 섞지 않는다.
     """
@@ -625,7 +729,8 @@ def write_raw(records: dict[str, dict[date, dict[str, float]]],
                  값이 None 인 항목은 기록하지 않는다 (기존 값 보존).
         production_path: 과거 생산량을 보완할 DB_생산실적.xlsx 경로.
         production_raw_path: 최신 월을 우선 반영할 RawDB_생산실적.xlsx 경로.
-        sync_production: True이면 월 전체 actual_qty 합계를 N열에 다시 쓴다.
+        sync_production: True이면 월 전체 생산량 합계를 N열에 다시 쓴다. 광주는
+                         품목별 믹스 환산을 먼저 적용한다.
         recalculate: True이면 저장 후 Excel COM으로 수식과 계산 캐시를 갱신한다.
         ensure_formulas: True이면 적재 행의 빈 원단위 수식을 보완한다.
     """
