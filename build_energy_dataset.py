@@ -12,7 +12,8 @@ MIS 화면을 열지 않고 `RawDB_에너지.xlsx`의 좌표 수집 결과를
 
 이 스크립트를 생산실적 갱신 뒤에 돌리면 MIS 접속 없이 수 초 만에 정합이 맞는다.
 
-권위 값 = `DB_생산실적.xlsx`(가공 완료본) + `RawDB_생산실적.xlsx`(최신 수집분 우선).
+권위 값 = `DB_생산실적.xlsx`(가공 완료본) + `RawDB_생산실적.xlsx`(최신 수집분 우선)
+          + `DB_재공품.xlsx`(광주 재공품 환산).
 
 Usage:
   python build_energy_dataset.py                          # 전체 기간 재집계
@@ -92,6 +93,7 @@ def main() -> int:
     print(f"  사업장    : {', '.join(sheet_names)}")
     print(f"  권위 값   : {energy_builder.DEFAULT_PRODUCTION_PATH}")
     print(f"              + {energy_builder.DEFAULT_PRODUCTION_RAW_PATH} (최신 우선)")
+    print(f"              + {energy_builder.DEFAULT_WIP_PATH} (광주 재공품)")
     if args.dry_run:
         print("  모드      : DRY-RUN (파일 미저장)")
     print("=" * 66)

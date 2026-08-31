@@ -69,6 +69,9 @@ DEFAULT_PRODUCTION_PATH = Path(
 DEFAULT_PRODUCTION_RAW_PATH = Path(
     sampled_db_path("RawDB_생산실적.xlsx", "PRODUCTION_RAW_XLSX")
 )
+DEFAULT_WIP_PATH = Path(
+    sampled_db_path("DB_재공품.xlsx", "WIP_SUMMARY_XLSX")
+)
 
 FACTORY_SHEETS: tuple[str, ...] = FACTORY_PHYSICAL_DISPLAY_ORDER
 
@@ -143,10 +146,15 @@ UNIT_FORMULA_SOURCE_KEYS: dict[str, str] = {
 
 _PRODUCTION_CACHE_PATH: Path | None = None
 _PRODUCTION_CACHE_MTIME_NS: int | None = None
+_PRODUCTION_CACHE_INCLUDE_GWANGJU_WIP: bool | None = None
 _PRODUCTION_CACHE: dict[tuple[str, str], float] | None = None
 _PRODUCTION_RAW_CACHE_PATH: Path | None = None
 _PRODUCTION_RAW_CACHE_MTIME_NS: int | None = None
+_PRODUCTION_RAW_CACHE_INCLUDE_GWANGJU_WIP: bool | None = None
 _PRODUCTION_RAW_CACHE: dict[tuple[str, str], float] | None = None
+_WIP_CACHE_PATH: Path | None = None
+_WIP_CACHE_MTIME_NS: int | None = None
+_WIP_CACHE: dict[tuple[str, str], float] | None = None
 
 
 # 광주(F30) 품목별 믹스 환산계수. BEMS Next의
@@ -242,12 +250,15 @@ def _mix_equivalent_qty(factory: str, item_code, actual_qty: float) -> float:
     return amount * factor
 
 
-def _aggregate_production_rows(rows) -> dict[tuple[str, str], float]:
+def _aggregate_production_rows(
+    rows, *, include_gwangju_wip: bool = True,
+) -> dict[tuple[str, str], float]:
     """품목별 환산 후 공장·일자 합계를 만든다.
 
     광주 daily의 동일한 (일자, 품목, 수량) 행이 여러 시트/경로에서 반복된 경우에는
     한 번만 반영한다. 환산 전 수량과 환산 후 수량을 함께 더하지 않고, 각 원천 행은
-    환산된 값 하나로만 합계에 기여한다. 비광주는 기존 단순 합산을 유지한다.
+    환산된 값 하나로만 합계에 기여한다. DB_재공품을 별도 합산하는 운영 경로에서는
+    광주 260xxx를 여기서 제외해 중복을 막는다. 비광주는 기존 단순 합산을 유지한다.
     """
     actuals: dict[tuple[str, str], float] = {}
     seen_gwangju_rows: set[tuple[str, str, float]] = set()
@@ -262,6 +273,9 @@ def _aggregate_production_rows(rows) -> dict[tuple[str, str], float]:
             continue
 
         item_code = _item_code(item_value)
+        if (factory == GWANGJU_FACTORY_CODE and not include_gwangju_wip
+                and item_code in GWANGJU_WIP_MIX_CONVERSION):
+            continue
         if factory == GWANGJU_FACTORY_CODE:
             duplicate_key = (day_key, item_code, amount)
             if duplicate_key in seen_gwangju_rows:
@@ -297,13 +311,14 @@ def _fill_internal_zero_days(actuals: dict[tuple[str, str], float]) -> None:
 
 
 def _load_production_actuals(
-    production_path: Path,
+    production_path: Path, *, include_gwangju_wip: bool = True,
 ) -> dict[tuple[str, str], float]:
     """DB_생산실적 daily를 공장·일자별 믹스 환산 kg 합계로 읽는다.
 
     광주는 품목별 환산 후 합산하고, 다른 공장은 actual_qty를 그대로 합산한다.
     """
-    global _PRODUCTION_CACHE_PATH, _PRODUCTION_CACHE_MTIME_NS, _PRODUCTION_CACHE
+    global _PRODUCTION_CACHE_PATH, _PRODUCTION_CACHE_MTIME_NS
+    global _PRODUCTION_CACHE_INCLUDE_GWANGJU_WIP, _PRODUCTION_CACHE
 
     production_path = production_path.resolve()
     if not production_path.exists():
@@ -314,6 +329,7 @@ def _load_production_actuals(
         _PRODUCTION_CACHE is not None
         and _PRODUCTION_CACHE_PATH == production_path
         and _PRODUCTION_CACHE_MTIME_NS == mtime_ns
+        and _PRODUCTION_CACHE_INCLUDE_GWANGJU_WIP == include_gwangju_wip
     ):
         return _PRODUCTION_CACHE
 
@@ -352,27 +368,31 @@ def _load_production_actuals(
                 row[item_col] if item_col is not None else None,
                 row[columns["actual_qty"]],
             ))
-        actuals = _aggregate_production_rows(production_rows)
+        actuals = _aggregate_production_rows(
+            production_rows, include_gwangju_wip=include_gwangju_wip
+        )
     finally:
         wb.close()
 
     _fill_internal_zero_days(actuals)
     _PRODUCTION_CACHE_PATH = production_path
     _PRODUCTION_CACHE_MTIME_NS = mtime_ns
+    _PRODUCTION_CACHE_INCLUDE_GWANGJU_WIP = include_gwangju_wip
     _PRODUCTION_CACHE = actuals
     log.info("생산실적 daily 로드: %s (%s개 공장·일자)", production_path, len(actuals))
     return actuals
 
 
 def _load_raw_production_actuals(
-    production_raw_path: Path,
+    production_raw_path: Path, *, include_gwangju_wip: bool = True,
 ) -> dict[tuple[str, str], float]:
     """최신 RawDB_생산실적 월 구간을 공장·일자별 믹스 환산 kg로 읽는다.
 
     DB daily 로더와 동일하게 광주만 품목별 환산하고 다른 공장은 단순 합산한다.
     """
     global _PRODUCTION_RAW_CACHE_PATH
-    global _PRODUCTION_RAW_CACHE_MTIME_NS, _PRODUCTION_RAW_CACHE
+    global _PRODUCTION_RAW_CACHE_MTIME_NS
+    global _PRODUCTION_RAW_CACHE_INCLUDE_GWANGJU_WIP, _PRODUCTION_RAW_CACHE
 
     production_raw_path = production_raw_path.resolve()
     if not production_raw_path.exists():
@@ -383,19 +403,23 @@ def _load_raw_production_actuals(
         _PRODUCTION_RAW_CACHE is not None
         and _PRODUCTION_RAW_CACHE_PATH == production_raw_path
         and _PRODUCTION_RAW_CACHE_MTIME_NS == mtime_ns
+        and _PRODUCTION_RAW_CACHE_INCLUDE_GWANGJU_WIP == include_gwangju_wip
     ):
         return _PRODUCTION_RAW_CACHE
 
     import production_builder
 
     daily = production_builder.consolidate_raw_file(production_raw_path)
-    actuals = _aggregate_production_rows(
+    production_rows = (
         (
             (row.date, row.factory, row.item_code, row.actual_qty)
             for row in daily.itertuples(index=False)
         )
         if not daily.empty
         else ()
+    )
+    actuals = _aggregate_production_rows(
+        production_rows, include_gwangju_wip=include_gwangju_wip
     )
 
     # MIS 생산 화면이 무생산일 열을 생략해도, 각 시트의 기간 마커 안 날짜는 0kg로
@@ -428,11 +452,98 @@ def _load_raw_production_actuals(
 
     _PRODUCTION_RAW_CACHE_PATH = production_raw_path
     _PRODUCTION_RAW_CACHE_MTIME_NS = mtime_ns
+    _PRODUCTION_RAW_CACHE_INCLUDE_GWANGJU_WIP = include_gwangju_wip
     _PRODUCTION_RAW_CACHE = actuals
     log.info(
         "최신 생산 RawDB 로드: %s (%s개 공장·일자)",
         production_raw_path, len(actuals),
     )
+    return actuals
+
+
+def _load_gwangju_wip_actuals(
+    wip_path: Path,
+) -> dict[tuple[str, str], float]:
+    """DB_재공품 광주 시트를 일자별 믹스 환산 kg 합계로 읽는다.
+
+    재공품 가공 단계가 job_number 반영 여부를 적용해 만든 DB를 권위 원천으로
+    사용한다. 품목 열이 없는 기준은 0으로 보고, 날짜 중복 행은 마지막 행만 사용한다.
+    """
+    global _WIP_CACHE_PATH, _WIP_CACHE_MTIME_NS, _WIP_CACHE
+
+    wip_path = wip_path.resolve()
+    if not wip_path.exists():
+        raise FileNotFoundError(f"재공품 파일이 없습니다: {wip_path}")
+
+    mtime_ns = wip_path.stat().st_mtime_ns
+    if (
+        _WIP_CACHE is not None
+        and _WIP_CACHE_PATH == wip_path
+        and _WIP_CACHE_MTIME_NS == mtime_ns
+    ):
+        return _WIP_CACHE
+
+    wb = openpyxl.load_workbook(
+        wip_path, read_only=True, data_only=True, keep_links=False
+    )
+    try:
+        sheet_name = next(
+            (name for name in ("광주", "F30", "Sheet1") if name in wb.sheetnames),
+            None,
+        )
+        if sheet_name is None:
+            raise ValueError(f"재공품 파일에 광주 시트가 없습니다: {wip_path}")
+
+        rows = wb[sheet_name].iter_rows(values_only=True)
+        try:
+            header = next(rows)
+        except StopIteration as exc:
+            raise ValueError(f"재공품 광주 시트가 비어 있습니다: {wip_path}") from exc
+
+        item_columns = {
+            idx: code
+            for idx, value in enumerate(header)
+            if (code := _item_code(value)) in GWANGJU_WIP_MIX_CONVERSION
+        }
+        if not item_columns:
+            raise ValueError(
+                "재공품 광주 시트에 환산 대상 품목 열이 없습니다: "
+                f"{wip_path}"
+            )
+
+        actuals: dict[tuple[str, str], float] = {}
+        for row in rows:
+            if not row:
+                continue
+            day_key = _date_key(row[0])
+            if not day_key:
+                continue
+            total = 0.0
+            for idx, item_code in item_columns.items():
+                value = row[idx] if idx < len(row) else None
+                if value in (None, ""):
+                    continue
+                try:
+                    amount = float(value)
+                except (TypeError, ValueError):
+                    log.warning(
+                        "광주 재공품 숫자 변환 실패 제외: %s / %s / %r",
+                        day_key, item_code, value,
+                    )
+                    continue
+                total += amount * GWANGJU_WIP_MIX_CONVERSION[item_code]
+
+            key = (GWANGJU_FACTORY_CODE, day_key)
+            if key in actuals:
+                log.warning("광주 재공품 날짜 중복: %s (마지막 행 사용)", day_key)
+            actuals[key] = total
+    finally:
+        wb.close()
+
+    _WIP_CACHE_PATH = wip_path
+    _WIP_CACHE_MTIME_NS = mtime_ns
+    _WIP_CACHE = actuals
+    log.info("광주 재공품 DB 로드: %s (%s일)", wip_path, len(actuals))
     return actuals
 
 
@@ -545,18 +656,28 @@ def _recalculate_with_excel(raw_path: Path) -> bool:
 def merge_production_actuals(
     production_path: Path | None = None,
     production_raw_path: Path | None = None,
+    wip_path: Path | None = None,
 ) -> dict[tuple[str, str], float]:
     """믹스생산량의 권위 값 {(공장코드, 'YY-MM-DD'): kg} 을 만든다.
 
-    두 입력 모두 광주 품목별 환산을 끝낸 공장·일자 합계다. 기본은
+    생산실적 두 입력 모두 광주 품목별 환산을 끝낸 공장·일자 합계다. 기본은
     `DB_생산실적.xlsx`(가공 완료본)이고, 그 위에 `RawDB_생산실적.xlsx`(최신 수집분)를
     공장·일자 단위로 덮어써 같은 실적이 두 번 합산되지 않게 한다. 수집과 가공이
-    분리돼 있어도 두 경로가 같은 규칙을 쓴다.
+    분리돼 있어도 두 경로가 같은 규칙을 쓴다. 운영 기본 경로에서는 광주 260xxx를
+    생산실적에서 제외하고 `DB_재공품.xlsx` 환산 합계를 더해 중복을 막는다.
 
-    production_path 만 지정하면(테스트 등) 최신 RawDB 는 섞지 않는다.
+    production_path만 지정하면(테스트 등) 최신 RawDB와 기본 재공품 DB는 섞지 않는다.
+    wip_path를 명시하면 해당 재공품 DB를 합산한다.
     """
+    wip_source = (
+        Path(wip_path) if wip_path is not None
+        else DEFAULT_WIP_PATH if production_path is None
+        else None
+    )
+    include_gwangju_wip = wip_source is None
     actuals = dict(_load_production_actuals(
-        Path(production_path or DEFAULT_PRODUCTION_PATH)
+        Path(production_path or DEFAULT_PRODUCTION_PATH),
+        include_gwangju_wip=include_gwangju_wip,
     ))
     raw_source = (
         Path(production_raw_path) if production_raw_path is not None
@@ -564,7 +685,12 @@ def merge_production_actuals(
         else None
     )
     if raw_source is not None:
-        actuals.update(_load_raw_production_actuals(raw_source))
+        actuals.update(_load_raw_production_actuals(
+            raw_source, include_gwangju_wip=include_gwangju_wip
+        ))
+    if wip_source is not None:
+        for key, amount in _load_gwangju_wip_actuals(wip_source).items():
+            actuals[key] = actuals.get(key, 0.0) + amount
     return actuals
 
 
@@ -609,6 +735,7 @@ def resync_production(
     sheet_names: Sequence[str] | None = None,
     production_path: Path | None = None,
     production_raw_path: Path | None = None,
+    wip_path: Path | None = None,
     recalculate: bool = True,
     dry_run: bool = False,
 ) -> tuple[dict[str, dict[str, int]], list[tuple[str, date, float | None, float]]]:
@@ -630,7 +757,9 @@ def resync_production(
     if not raw_path.exists():
         raise FileNotFoundError(f"에너지 파일이 없습니다: {raw_path}")
 
-    actuals = merge_production_actuals(production_path, production_raw_path)
+    actuals = merge_production_actuals(
+        production_path, production_raw_path, wip_path
+    )
     targets = set(sheet_names) if sheet_names else None
     mix_col = _raw_column("mix_prod_kg")
 
@@ -719,6 +848,7 @@ def write_raw(records: dict[str, dict[date, dict[str, float]]],
               raw_path: Path | None = None, *,
               production_path: Path | None = None,
               production_raw_path: Path | None = None,
+              wip_path: Path | None = None,
               sync_production: bool = True,
               recalculate: bool = True,
               ensure_formulas: bool = True) -> Path:
@@ -729,6 +859,7 @@ def write_raw(records: dict[str, dict[date, dict[str, float]]],
                  값이 None 인 항목은 기록하지 않는다 (기존 값 보존).
         production_path: 과거 생산량을 보완할 DB_생산실적.xlsx 경로.
         production_raw_path: 최신 월을 우선 반영할 RawDB_생산실적.xlsx 경로.
+        wip_path: 광주 재공품을 환산·합산할 DB_재공품.xlsx 경로.
         sync_production: True이면 월 전체 생산량 합계를 N열에 다시 쓴다. 광주는
                          품목별 믹스 환산을 먼저 적용한다.
         recalculate: True이면 저장 후 Excel COM으로 수식과 계산 캐시를 갱신한다.
@@ -740,7 +871,7 @@ def write_raw(records: dict[str, dict[date, dict[str, float]]],
     production_actuals: dict[tuple[str, str], float] | None = None
     if sync_production:
         production_actuals = merge_production_actuals(
-            production_path, production_raw_path
+            production_path, production_raw_path, wip_path
         )
 
         missing_production: list[str] = []
@@ -918,6 +1049,7 @@ def process_collected_raw(
     sheet_names: Sequence[str] | None = None,
     production_path: Path | None = None,
     production_raw_path: Path | None = None,
+    wip_path: Path | None = None,
     recalculate: bool = True,
     dry_run: bool = False,
 ) -> tuple[int, dict[str, dict[str, int]], list[tuple[str, date, float | None, float]]]:
@@ -933,7 +1065,9 @@ def process_collected_raw(
 
     if dry_run:
         if records:
-            actuals = merge_production_actuals(production_path, production_raw_path)
+            actuals = merge_production_actuals(
+                production_path, production_raw_path, wip_path
+            )
             missing = []
             for sheet_name, by_date in records.items():
                 factory_code = FACTORY_KR_TO_CODE.get(sheet_name)
@@ -957,6 +1091,7 @@ def process_collected_raw(
             sheet_names=sheet_names,
             production_path=production_path,
             production_raw_path=production_raw_path,
+            wip_path=wip_path,
             recalculate=False,
             dry_run=True,
         )
@@ -968,6 +1103,7 @@ def process_collected_raw(
             target_path,
             production_path=production_path,
             production_raw_path=production_raw_path,
+            wip_path=wip_path,
             sync_production=True,
             recalculate=recalculate,
             ensure_formulas=True,
@@ -986,6 +1122,7 @@ def process_collected_raw(
         sheet_names=sheet_names,
         production_path=production_path,
         production_raw_path=production_raw_path,
+        wip_path=wip_path,
         recalculate=recalculate,
         dry_run=False,
     )

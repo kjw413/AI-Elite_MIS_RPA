@@ -95,8 +95,8 @@ class RunAllTwoPhaseTests(unittest.TestCase):
                 "utility.collect",
                 "wip.collect",
                 "production.process",
-                "utility.process",
                 "wip.process",
+                "utility.process",
             ],
         )
         for rpa_name in ("production", "utility", "wip"):
@@ -180,6 +180,80 @@ class RunAllTwoPhaseTests(unittest.TestCase):
         self.assertEqual(rc, 1)
         self.assertNotIn("utility.process", events)
         self.assertIn("wip.process", events)
+
+    def test_utility_processing_waits_for_successful_wip_processing(self) -> None:
+        events: list[str] = []
+        window = _Window()
+
+        class Production:
+            def __init__(self, **kwargs):
+                self.app = object()
+                self.main_window = window
+
+            def collect(self):
+                events.append("production.collect")
+                return True
+
+            def process_collected_data(self):
+                events.append("production.process")
+                return True
+
+        class Utility:
+            def __init__(self, **kwargs):
+                pass
+
+            def attach_existing_window(self, app, main_window):
+                pass
+
+            def collect(self):
+                events.append("utility.collect")
+                return True
+
+            def process_collected_data(self):
+                events.append("utility.process")
+                return True
+
+        class WIP:
+            def __init__(self, **kwargs):
+                pass
+
+            def attach_existing_window(self, app, main_window):
+                pass
+
+            def collect(self):
+                events.append("wip.collect")
+                return True
+
+            def process_collected_data(self):
+                events.append("wip.process")
+                return False
+
+        modules = {
+            "production_daily_rpa": types.SimpleNamespace(MISProductionRPA=Production),
+            "utility_daily_rpa": types.SimpleNamespace(MISUtilityRPA=Utility),
+            "wip_daily_rpa": types.SimpleNamespace(MISWIPRPA=WIP),
+        }
+        args = Namespace(
+            date=None,
+            date_from=None,
+            date_to=None,
+            factories=None,
+            dry_run=False,
+        )
+
+        with (
+            patch.dict(sys.modules, modules),
+            patch.object(
+                run_all_rpa.argparse.ArgumentParser,
+                "parse_known_args",
+                return_value=(args, []),
+            ),
+        ):
+            rc = run_all_rpa.main()
+
+        self.assertEqual(rc, 1)
+        self.assertIn("wip.process", events)
+        self.assertNotIn("utility.process", events)
 
 
 if __name__ == "__main__":

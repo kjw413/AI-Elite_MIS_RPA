@@ -58,6 +58,21 @@ def _write_production_raw(
     wb.close()
 
 
+def _write_wip_db(path: Path, values: dict[object, float]) -> None:
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "광주"
+    item_codes = list(eb.GWANGJU_WIP_MIX_CONVERSION)
+    ws.append(["날짜", *item_codes])
+    normalized = {
+        eb._item_code(item_code): quantity
+        for item_code, quantity in values.items()
+    }
+    ws.append([DAY, *(normalized.get(code) for code in item_codes)])
+    wb.save(path)
+    wb.close()
+
+
 def _expected_gwangju(rows: list[tuple[object, float]]) -> float:
     return sum(
         quantity * eb.GWANGJU_MIX_CONVERSION.get(eb._item_code(item_code), 1.0)
@@ -118,6 +133,63 @@ class GwangjuEnergyConversionTests(unittest.TestCase):
                 },
             )
 
+    def test_wip_loader_converts_every_gwangju_wip_item(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            wip_path = Path(tmp) / "DB_재공품.xlsx"
+            wip_values = {
+                "260014": 2.0,
+                260016: 3.0,
+                "260039.0": 5.0,
+                "260042": 7.0,
+                "260047": 11.0,
+                "260351": 13.0,
+                "260352": 17.0,
+            }
+            _write_wip_db(wip_path, wip_values)
+
+            actuals = eb._load_gwangju_wip_actuals(wip_path)
+            expected = sum(
+                quantity * eb.GWANGJU_WIP_MIX_CONVERSION[
+                    eb._item_code(item_code)
+                ]
+                for item_code, quantity in wip_values.items()
+            )
+            self.assertTrue(math.isclose(
+                actuals[("F30", "26-08-20")], expected,
+                rel_tol=0.0, abs_tol=1e-9,
+            ))
+
+    def test_merge_uses_wip_as_single_source_and_keeps_other_factory(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            production_path = tmp_path / "DB_생산실적.xlsx"
+            production_raw_path = tmp_path / "RawDB_생산실적.xlsx"
+            wip_path = tmp_path / "DB_재공품.xlsx"
+            _write_production_db(production_path, [
+                ("F30", DAY, "129998", 999.0),
+                ("F20", DAY, "260014", 999.0),
+            ])
+            _write_production_raw(production_raw_path, {
+                "F30_냉장": [
+                    ("100001", 6.0), ("129998", 4.0), ("260014", 5.0),
+                ],
+                "F20_냉장": [("260014", 7.0)],
+            })
+            _write_wip_db(wip_path, {"260014": 5.0, "260042": 3.0})
+
+            merged = eb.merge_production_actuals(
+                production_path, production_raw_path, wip_path
+            )
+            expected_gwangju = (
+                6.0 + 4.0 * eb.GWANGJU_SKIM_MILK_MIX_FACTOR
+                + 5.0 * eb.GWANGJU_SKIM_MILK_MIX_FACTOR + 3.0 * 4.0
+            )
+            self.assertTrue(math.isclose(
+                merged[("F30", "26-08-20")], expected_gwangju,
+                rel_tol=0.0, abs_tol=1e-9,
+            ))
+            self.assertEqual(merged[("F20", "26-08-20")], 7.0)
+
     def test_raw_loader_converts_and_overrides_db_without_double_counting(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             production_path = Path(tmp) / "DB_생산실적.xlsx"
@@ -160,6 +232,7 @@ class GwangjuEnergyConversionTests(unittest.TestCase):
             output_path = tmp_path / "DB_에너지.xlsx"
             production_path = tmp_path / "DB_생산실적.xlsx"
             production_raw_path = tmp_path / "RawDB_생산실적.xlsx"
+            wip_path = tmp_path / "DB_재공품.xlsx"
 
             eb.write_collected_raw({
                 "광주": {DAY: {"total_power_kwh": 3_000.0}},
@@ -174,6 +247,7 @@ class GwangjuEnergyConversionTests(unittest.TestCase):
                 "F30_냉장": raw_gwangju,
                 "F20_냉장": [("129998", 10.0)],
             })
+            _write_wip_db(wip_path, {"260014": 20.0})
 
             argv = [
                 "build_energy_dataset.py",
@@ -186,6 +260,7 @@ class GwangjuEnergyConversionTests(unittest.TestCase):
             with (
                 patch.object(eb, "DEFAULT_PRODUCTION_PATH", production_path),
                 patch.object(eb, "DEFAULT_PRODUCTION_RAW_PATH", production_raw_path),
+                patch.object(eb, "DEFAULT_WIP_PATH", wip_path),
                 patch.object(eb, "_recalculate_with_excel", return_value=True) as recalc,
                 patch.object(sys, "argv", argv),
             ):

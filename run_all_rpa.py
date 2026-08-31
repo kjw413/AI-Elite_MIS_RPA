@@ -12,7 +12,7 @@ MIS 3종 RPA 자동 실행 오케스트레이터 (in-process 버전).
 Pipeline:
     [수집] production → utility → wip
                          ↓
-    [가공] production → utility → wip
+    [가공] production → wip → utility
 
 Usage:
     python run_all_rpa.py [--date YYYY-MM-DD] [--dry-run]
@@ -204,24 +204,27 @@ def main() -> int:
         else:
             log.error("[가공 생략] 생산실적 수집 실패")
 
-        # 유틸리티 원단위 가공은 최신 생산실적을 사용하므로 생산 가공 성공이 선행 조건.
-        if rc_util_collect == 0 and rc_prod_process == 0:
-            header("[가공 2/3] 유틸리티 적재 및 원단위 가공")
-            rc_util_process = _run_rpa_safe(
-                "유틸리티 가공", util.process_collected_data
-            )
-        elif rc_util_collect != 0:
-            log.error("[가공 생략] 유틸리티 수집 실패")
-        else:
-            log.error("[가공 생략] 생산실적 가공 실패로 유틸리티 의존성 미충족")
-
         if rc_wip_collect == 0:
-            header("[가공 3/3] 재공품 DB 통합")
+            header("[가공 2/3] 재공품 DB 통합")
             rc_wip_process = _run_rpa_safe(
                 "재공품 가공", wip.process_collected_data
             )
         else:
             log.error("[가공 생략] 재공품 수집 실패")
+
+        # 유틸리티 원단위 가공은 최신 생산실적과 광주 재공품 DB를 모두 사용한다.
+        if (rc_util_collect == 0 and rc_prod_process == 0
+                and rc_wip_process == 0):
+            header("[가공 3/3] 유틸리티 적재 및 원단위 가공")
+            rc_util_process = _run_rpa_safe(
+                "유틸리티 가공", util.process_collected_data
+            )
+        elif rc_util_collect != 0:
+            log.error("[가공 생략] 유틸리티 수집 실패")
+        elif rc_prod_process != 0:
+            log.error("[가공 생략] 생산실적 가공 실패로 유틸리티 의존성 미충족")
+        else:
+            log.error("[가공 생략] 재공품 가공 실패로 유틸리티 의존성 미충족")
 
     # ──────────────────────────────────────────────────────────
     # 요약
@@ -235,8 +238,8 @@ def main() -> int:
         f"    [수집 2] 유틸리티     : {rc_util_collect}\n"
         f"    [수집 3] 재공품       : {rc_wip_collect}\n"
         f"    [가공 1] 생산실적     : {_fmt(rc_prod_process)}\n"
-        f"    [가공 2] 유틸리티     : {_fmt(rc_util_process)}\n"
-        f"    [가공 3] 재공품       : {_fmt(rc_wip_process)}\n"
+        f"    [가공 2] 재공품       : {_fmt(rc_wip_process)}\n"
+        f"    [가공 3] 유틸리티     : {_fmt(rc_util_process)}\n"
         f"  종료: {datetime.now():%Y-%m-%d %H:%M:%S}\n"
         f"  로그: {MAIN_LOG}\n"
         "============================================================\n"
