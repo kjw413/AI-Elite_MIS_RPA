@@ -54,6 +54,7 @@ import pandas as pd
 from pywinauto import Application
 from pywinauto.keyboard import send_keys
 from pywinauto.timings import Timings
+from production_validation import VERIFIED_PERIOD_MARKER, validate_grid_dates
 
 # pywinauto 내부 click/keys 대기 시간 단축 (MIS는 즉시 반응한다는 가정)
 #   after_clickinput_wait : click_input 직후 자동 sleep (default 0.09s → 0.01s)
@@ -270,48 +271,25 @@ def plan_collection_periods(
     end_date: date,
     collected_dates_by_sheet: dict[str, set[date]],
 ) -> list[tuple[date, date]]:
-    """마지막 수집일 이후 누락 구간과 현재 월 조회 구간을 월별로 계획한다.
+    """당월 누계·최근 7일에 걸친 월·전월 말 누락을 월 단위로 재수집한다.
 
-    생산실적 그리드의 일자 열은 01일처럼 연월 정보가 없으므로 한 조회가
-    두 달에 걸치면 안 된다. 현재 월 시작일의 직전 날짜가 어느 대상 시트에서든
-    빠졌다면, 해당 시트들의 마지막 수집일 다음 날 중 가장 이른 날짜부터 직전
-    월 말일까지 별도 조회한다.
+    전월을 포함할 때도 1일부터 다시 읽어 주말/월초 지연 입력과 정정을 반영한다.
+    일자 헤더에는 연월이 없어 월별로 나눈다. 명시 범위에는 이 정책을 적용하지 않는다.
     """
     current_start = end_date.replace(day=1)
-    current_period = (current_start, end_date)
-    if not collected_dates_by_sheet:
-        return [current_period]
-
+    start = min(current_start, (end_date - timedelta(days=6)).replace(day=1))
     previous_day = current_start - timedelta(days=1)
-    if all(
-        previous_day in dates
-        for dates in collected_dates_by_sheet.values()
-    ):
-        return [current_period]
-
-    if not any(collected_dates_by_sheet.values()):
-        return [current_period]
-
-    previous_month_start = previous_day.replace(day=1)
-    missing_starts: list[date] = []
-    for dates in collected_dates_by_sheet.values():
-        if previous_day in dates:
-            continue
-        collected_in_previous_month = [
-            day
-            for day in dates
-            if previous_month_start <= day <= previous_day
-        ]
-        if collected_in_previous_month:
-            missing_starts.append(max(collected_in_previous_month) + timedelta(days=1))
-        else:
-            missing_starts.append(previous_month_start)
-
-    if not missing_starts:
-        return [current_period]
-
-    recovery_start = min(missing_starts)
-    return [(recovery_start, previous_day), current_period]
+    if any(collected_dates_by_sheet.values()):
+        for dates in collected_dates_by_sheet.values():
+            if previous_day in dates:
+                continue
+            previous_dates = [day for day in dates if day < current_start]
+            recovery = (
+                (max(previous_dates) + timedelta(days=1)).replace(day=1)
+                if previous_dates else previous_day.replace(day=1)
+            )
+            start = min(start, recovery)
+    return split_date_range_by_month(start, end_date)
 
 
 # ---------------------------------------------------------------------------
@@ -354,6 +332,9 @@ class MISProductionRPA:
         self.coords = self._load_coords()
         self._pending_raw_snapshots: list[tuple[str, str, bytes]] = []
         self.collection_success_count = 0
+        self.collection_periods: list[tuple[date, date]] = []
+        self.collection_failed = False
+        self._date_range_verified = False
         # 좌표 선택/화면 로딩 실패로 이전 대상의 그리드를 다시 복사한 사례.
         # (시작일, 종료일, 대상 시트, 실제로 복사된 이전 시트)
         self.duplicate_grids: list[tuple[str, str, str, str]] = []
@@ -388,7 +369,6 @@ class MISProductionRPA:
         # 명시 범위에는 자동 누락 복구를 섞지 않는다.
         if not self.auto_recover_missing_dates:
             return requested_periods
-        current_period = requested_periods[-1]
 
         output_path = self.dw_output or sampled_db_path(
             "DB_생산실적.xlsx", "PRODUCTION_DW_XLSX"
@@ -397,22 +377,7 @@ class MISProductionRPA:
         collected = load_collected_dates_by_sheet(output_path, target_sheets)
         periods = plan_collection_periods(self.requested_end_date, collected)
 
-        if len(periods) > 1:
-            recovery_start, recovery_end = periods[0]
-            missing_sheets = [
-                name
-                for name, dates in collected.items()
-                if recovery_end not in dates
-            ]
-            log.warning(
-                f"이전 수집 누락 감지: {recovery_start} ~ {recovery_end} "
-                f"(대상 시트 {len(missing_sheets)}개) → 현재 월보다 먼저 복구"
-            )
-        elif collected and any(collected.values()):
-            previous_day = current_period[0] - timedelta(days=1)
-            log.info(f"이전 수집일 확인 완료: {previous_day} 누락 없음")
-        else:
-            log.info("기존 수집 이력이 없어 현재 월 기본 조회만 수행합니다.")
+        log.info("자동 재수집 기간 (당월 누계·최근 7일·전월 말 누락): %s", periods)
         return periods
 
     # -----------------------------------------------------------------------
@@ -510,38 +475,58 @@ class MISProductionRPA:
     # -----------------------------------------------------------------------
     # 기준일자 설정
     # -----------------------------------------------------------------------
-    def set_date_range(self):
-        """
-        시작일 필드 클릭 → 입력 → TAB(자동 종료일 포커스) → 종료일 입력 → ENTER(확정).
-        MIS 날짜 필드는 YYYY-MM-DD 형식을 요구한다.
-        """
-        log.info(f"기준일자 설정: {self.start_date} ~ {self.end_date}")
+    def _date_field_coords(self, field: str) -> tuple[int, int]:
+        fallback = (609, 108) if field == "start_date_field" else (609, 130)
+        return tuple(self.coords.get(field, fallback))
 
-        # 시작일 클릭 + 입력
-        x, y = self.coords.get("start_date_field", [609, 108])
-        fast_click(self.main_window, x, y)
-        log.info(f"  시작일 클릭 ({x}, {y})")
+    def _write_date_field(self, field: str, value: str) -> None:
+        fast_click(self.main_window, *self._date_field_coords(field))
         time.sleep(WAIT_MEDIUM)
         send_keys("^a")
-        time.sleep(WAIT_SHORT)
-        send_keys(self.start_date, with_spaces=True)
-        log.info(f"  시작일 입력: {self.start_date}")
-        time.sleep(WAIT_SHORT)
-
-        # TAB → 종료일로 자동 포커스 이동
-        send_keys("{TAB}")
-        time.sleep(WAIT_SHORT)
-
-        # 종료일 입력 (클릭 불필요)
-        send_keys("^a")
-        time.sleep(WAIT_SHORT)
-        send_keys(self.end_date, with_spaces=True)
-        log.info(f"  종료일 입력: {self.end_date}")
-        time.sleep(WAIT_SHORT)
-
-        # ENTER → 확정
+        send_keys(value, with_spaces=True)
         send_keys("{ENTER}")
-        time.sleep(WAIT_SHORT)
+        time.sleep(WAIT_MEDIUM)
+
+    def _read_date_field(self, field: str) -> date:
+        """필드에서 새로 복사한 값만 읽는다. 읽기 실패는 수집 실패로 처리한다."""
+        fast_click(self.main_window, *self._date_field_coords(field))
+        time.sleep(WAIT_MEDIUM)
+        send_keys("^a")
+        sequence = get_clipboard_sequence()
+        send_keys("^c")
+        if not wait_for_clipboard_change(sequence, timeout=2.0):
+            raise ValueError(f"생산 조회 날짜 필드 읽기 실패: {field}")
+        text = get_clipboard_text().strip()
+        match = re.fullmatch(r"(\d{4})\s*[-./]\s*(\d{1,2})\s*[-./]\s*(\d{1,2})", text)
+        if not match:
+            raise ValueError(f"생산 조회 날짜 형식 오류: {field}={text!r}")
+        return date(*(int(part) for part in match.groups()))
+
+    def _verify_date_range(self) -> None:
+        actual = (self._read_date_field("start_date_field"),
+                  self._read_date_field("end_date_field"))
+        expected = (date.fromisoformat(self.start_date), date.fromisoformat(self.end_date))
+        if actual != expected:
+            raise ValueError(f"생산 조회 기간 불일치: 요청 {expected}, 화면 {actual}")
+        log.info("  화면 조회기간 확인: %s ~ %s", *actual)
+
+    def set_date_range(self):
+        """두 필드를 각각 입력하고 실제 표시값이 맞을 때만 수집을 허용한다."""
+        self._date_range_verified = False
+        for attempt in range(2):
+            # 월 이동 시 컨트롤의 시작/종료 자동 보정도 고려한다.
+            self._write_date_field("end_date_field", self.end_date)
+            self._write_date_field("start_date_field", self.start_date)
+            self._write_date_field("end_date_field", self.end_date)
+            try:
+                self._verify_date_range()
+            except ValueError:
+                if attempt == 1:
+                    raise
+                log.warning("생산 조회 날짜 검증 실패 → 두 필드 재입력", exc_info=True)
+                continue
+            self._date_range_verified = True
+            return
 
     # -----------------------------------------------------------------------
     # category1 선택
@@ -789,6 +774,8 @@ class MISProductionRPA:
     def _collect_period(self, targets: list[dict]) -> tuple[int, int, int]:
         """현재 설정된 한 달 내 기간을 모든 대상 시트에서 수집한다."""
         period_marker = [PERIOD_MARKER, self.start_date, self.end_date]
+        if getattr(self, "_date_range_verified", False):
+            period_marker.append(VERIFIED_PERIOD_MARKER)
         current_factory = None
         # 같은 기간에 앞서 정상 수집한 그리드 지문. 직전 화면 재복사를 검출한다.
         fingerprints: dict[str, str] = {}
@@ -812,6 +799,7 @@ class MISProductionRPA:
                     current_factory = target["factory"]
 
                 self.select_category(target["category"])
+                self._verify_date_range()
                 self.click_query()
                 (
                     clipboard_text,
@@ -830,11 +818,14 @@ class MISProductionRPA:
                     continue
 
                 rows = parse_clipboard_rows(clipboard_text)
-                if not rows:
-                    log.warning("  파싱 결과 없음 → 스킵")
+                if len(rows) < 2:
+                    log.warning("  생산 그리드 데이터 행 없음 → 기존 시트 유지")
                     failed += 1
                     continue
 
+                validate_grid_dates(
+                    rows[0], date.fromisoformat(self.start_date), date.fromisoformat(self.end_date)
+                )
                 if fingerprint is not None:
                     fingerprints[fingerprint] = target["sheet_name"]
 
@@ -879,6 +870,7 @@ class MISProductionRPA:
 
         self._pending_raw_snapshots = []
         self.collection_success_count = 0
+        self.collection_failed = True
         self.duplicate_grids = []
 
         targets = [
@@ -893,6 +885,7 @@ class MISProductionRPA:
             return False
 
         periods = self._plan_collection_periods(targets)
+        self.collection_periods = periods
 
         self.connect_mis()
         self.main_window.set_focus()
@@ -925,6 +918,7 @@ class MISProductionRPA:
             if (
                 not self.dry_run
                 and period_success > 0
+                and period_failed == 0
             ):
                 self._capture_raw_snapshot()
 
@@ -936,8 +930,11 @@ class MISProductionRPA:
         log.info("=" * 60)
 
         self.collection_success_count = success
+        self.collection_failed = failed > 0 or success == 0
+        if self.collection_failed:
+            self._pending_raw_snapshots = []
         self.report_duplicate_grids()
-        return success > 0
+        return not self.collection_failed
 
     def report_duplicate_grids(self) -> bool:
         """이전 대상 그리드가 반복 복사되어 적재를 거부한 시트를 요약한다."""
@@ -977,6 +974,9 @@ class MISProductionRPA:
         if self.dry_run:
             log.info("생산실적 가공 단계 생략 (dry-run 모드)")
             return True
+        if getattr(self, "collection_failed", False):
+            log.error("생산실적 일부 수집 실패 → 전체 가공 중단")
+            return False
         if not self._pending_raw_snapshots:
             log.error("가공할 생산실적 Raw 스냅샷이 없습니다.")
             return False
@@ -1062,10 +1062,6 @@ def main():
 
     date_from = args.date_from
     date_to = args.date_to
-    if args.date is None:
-        resolved_start, resolved_end = resolve_date_range(date_from, date_to)
-        date_from = resolved_start.isoformat()
-        date_to = resolved_end.isoformat()
     rpa = MISProductionRPA(
         date_from=date_from,
         date_to=date_to,
@@ -1075,8 +1071,8 @@ def main():
         dw_output=args.dw_output,
         factory_codes=resolve_factory_codes(args.factories),
     )
-    rpa.run()
+    return 0 if rpa.run() else 1
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

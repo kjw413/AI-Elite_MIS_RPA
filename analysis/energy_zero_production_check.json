@@ -1,0 +1,1290 @@
+{
+  "production_daily_september_rows": 7142,
+  "production_by_factory_date": [
+    {
+      "factory": "F10A",
+      "date": "2026-09-01",
+      "kg": 236224.0
+    },
+    {
+      "factory": "F10A",
+      "date": "2026-09-02",
+      "kg": 230166.0
+    },
+    {
+      "factory": "F10A",
+      "date": "2026-09-03",
+      "kg": 223823.0
+    },
+    {
+      "factory": "F10A",
+      "date": "2026-09-04",
+      "kg": 271915.0
+    },
+    {
+      "factory": "F10A",
+      "date": "2026-09-05",
+      "kg": 37774.0
+    },
+    {
+      "factory": "F10A",
+      "date": "2026-09-07",
+      "kg": 211485.0
+    },
+    {
+      "factory": "F10A",
+      "date": "2026-09-08",
+      "kg": 237978.0
+    },
+    {
+      "factory": "F10A",
+      "date": "2026-09-09",
+      "kg": 194012.0
+    },
+    {
+      "factory": "F10A",
+      "date": "2026-09-10",
+      "kg": 233783.0
+    },
+    {
+      "factory": "F10A",
+      "date": "2026-09-11",
+      "kg": 301239.0
+    },
+    {
+      "factory": "F10A",
+      "date": "2026-09-12",
+      "kg": 78380.0
+    },
+    {
+      "factory": "F10A",
+      "date": "2026-09-13",
+      "kg": 13204.0
+    },
+    {
+      "factory": "F10A",
+      "date": "2026-09-14",
+      "kg": 197932.0
+    },
+    {
+      "factory": "F10A",
+      "date": "2026-09-15",
+      "kg": 278467.0
+    },
+    {
+      "factory": "F10A",
+      "date": "2026-09-16",
+      "kg": 218795.0
+    },
+    {
+      "factory": "F10A",
+      "date": "2026-09-17",
+      "kg": 226859.0
+    },
+    {
+      "factory": "F10B",
+      "date": "2026-09-01",
+      "kg": 226334.0
+    },
+    {
+      "factory": "F10B",
+      "date": "2026-09-02",
+      "kg": 242738.0
+    },
+    {
+      "factory": "F10B",
+      "date": "2026-09-03",
+      "kg": 231502.0
+    },
+    {
+      "factory": "F10B",
+      "date": "2026-09-04",
+      "kg": 206735.0
+    },
+    {
+      "factory": "F10B",
+      "date": "2026-09-05",
+      "kg": 30356.0
+    },
+    {
+      "factory": "F10B",
+      "date": "2026-09-07",
+      "kg": 116900.0
+    },
+    {
+      "factory": "F10B",
+      "date": "2026-09-08",
+      "kg": 116498.0
+    },
+    {
+      "factory": "F10B",
+      "date": "2026-09-09",
+      "kg": 142791.0
+    },
+    {
+      "factory": "F10B",
+      "date": "2026-09-10",
+      "kg": 162302.0
+    },
+    {
+      "factory": "F10B",
+      "date": "2026-09-11",
+      "kg": 144175.0
+    },
+    {
+      "factory": "F10B",
+      "date": "2026-09-12",
+      "kg": 17846.0
+    },
+    {
+      "factory": "F10B",
+      "date": "2026-09-13",
+      "kg": 0.0
+    },
+    {
+      "factory": "F10B",
+      "date": "2026-09-14",
+      "kg": 119158.0
+    },
+    {
+      "factory": "F10B",
+      "date": "2026-09-15",
+      "kg": 137441.0
+    },
+    {
+      "factory": "F10B",
+      "date": "2026-09-16",
+      "kg": 149004.0
+    },
+    {
+      "factory": "F10B",
+      "date": "2026-09-17",
+      "kg": 157581.0
+    },
+    {
+      "factory": "F20",
+      "date": "2026-09-01",
+      "kg": 406420.0
+    },
+    {
+      "factory": "F20",
+      "date": "2026-09-02",
+      "kg": 383434.0
+    },
+    {
+      "factory": "F20",
+      "date": "2026-09-03",
+      "kg": 421490.0
+    },
+    {
+      "factory": "F20",
+      "date": "2026-09-04",
+      "kg": 356279.0
+    },
+    {
+      "factory": "F20",
+      "date": "2026-09-05",
+      "kg": 14764.0
+    },
+    {
+      "factory": "F20",
+      "date": "2026-09-07",
+      "kg": 200999.0
+    },
+    {
+      "factory": "F20",
+      "date": "2026-09-08",
+      "kg": 396630.0
+    },
+    {
+      "factory": "F20",
+      "date": "2026-09-09",
+      "kg": 372714.0
+    },
+    {
+      "factory": "F20",
+      "date": "2026-09-10",
+      "kg": 403006.0
+    },
+    {
+      "factory": "F20",
+      "date": "2026-09-11",
+      "kg": 371744.0
+    },
+    {
+      "factory": "F20",
+      "date": "2026-09-12",
+      "kg": 10207.0
+    },
+    {
+      "factory": "F20",
+      "date": "2026-09-14",
+      "kg": 190388.0
+    },
+    {
+      "factory": "F20",
+      "date": "2026-09-15",
+      "kg": 404375.0
+    },
+    {
+      "factory": "F20",
+      "date": "2026-09-16",
+      "kg": 412167.0
+    },
+    {
+      "factory": "F20",
+      "date": "2026-09-17",
+      "kg": 418157.0
+    },
+    {
+      "factory": "F30",
+      "date": "2026-09-01",
+      "kg": 39428.0
+    },
+    {
+      "factory": "F30",
+      "date": "2026-09-02",
+      "kg": 24226.0
+    },
+    {
+      "factory": "F30",
+      "date": "2026-09-03",
+      "kg": 46159.0
+    },
+    {
+      "factory": "F30",
+      "date": "2026-09-04",
+      "kg": 32898.0
+    },
+    {
+      "factory": "F30",
+      "date": "2026-09-07",
+      "kg": 50795.0
+    },
+    {
+      "factory": "F30",
+      "date": "2026-09-08",
+      "kg": 41642.0
+    },
+    {
+      "factory": "F30",
+      "date": "2026-09-09",
+      "kg": 26445.0
+    },
+    {
+      "factory": "F30",
+      "date": "2026-09-10",
+      "kg": 44983.0
+    },
+    {
+      "factory": "F30",
+      "date": "2026-09-11",
+      "kg": 27537.0
+    },
+    {
+      "factory": "F30",
+      "date": "2026-09-14",
+      "kg": 29517.0
+    },
+    {
+      "factory": "F30",
+      "date": "2026-09-15",
+      "kg": 41547.0
+    },
+    {
+      "factory": "F30",
+      "date": "2026-09-16",
+      "kg": 41354.0
+    },
+    {
+      "factory": "F30",
+      "date": "2026-09-17",
+      "kg": 46120.0
+    },
+    {
+      "factory": "F40",
+      "date": "2026-09-01",
+      "kg": 190201.0
+    },
+    {
+      "factory": "F40",
+      "date": "2026-09-02",
+      "kg": 160142.0
+    },
+    {
+      "factory": "F40",
+      "date": "2026-09-03",
+      "kg": 196084.0
+    },
+    {
+      "factory": "F40",
+      "date": "2026-09-04",
+      "kg": 178901.0
+    },
+    {
+      "factory": "F40",
+      "date": "2026-09-05",
+      "kg": 23020.0
+    },
+    {
+      "factory": "F40",
+      "date": "2026-09-07",
+      "kg": 194666.0
+    },
+    {
+      "factory": "F40",
+      "date": "2026-09-08",
+      "kg": 184797.0
+    },
+    {
+      "factory": "F40",
+      "date": "2026-09-09",
+      "kg": 215149.0
+    },
+    {
+      "factory": "F40",
+      "date": "2026-09-10",
+      "kg": 216340.0
+    },
+    {
+      "factory": "F40",
+      "date": "2026-09-11",
+      "kg": 183205.0
+    },
+    {
+      "factory": "F40",
+      "date": "2026-09-12",
+      "kg": 13501.0
+    },
+    {
+      "factory": "F40",
+      "date": "2026-09-14",
+      "kg": 144614.0
+    },
+    {
+      "factory": "F40",
+      "date": "2026-09-15",
+      "kg": 174461.0
+    },
+    {
+      "factory": "F40",
+      "date": "2026-09-16",
+      "kg": 171327.0
+    },
+    {
+      "factory": "F40",
+      "date": "2026-09-17",
+      "kg": 170131.0
+    },
+    {
+      "factory": "F50",
+      "date": "2026-09-01",
+      "kg": 150238.0
+    },
+    {
+      "factory": "F50",
+      "date": "2026-09-02",
+      "kg": 149105.0
+    },
+    {
+      "factory": "F50",
+      "date": "2026-09-03",
+      "kg": 144518.0
+    },
+    {
+      "factory": "F50",
+      "date": "2026-09-04",
+      "kg": 98174.0
+    },
+    {
+      "factory": "F50",
+      "date": "2026-09-07",
+      "kg": 113865.0
+    },
+    {
+      "factory": "F50",
+      "date": "2026-09-08",
+      "kg": 84939.0
+    },
+    {
+      "factory": "F50",
+      "date": "2026-09-09",
+      "kg": 110509.0
+    },
+    {
+      "factory": "F50",
+      "date": "2026-09-10",
+      "kg": 122513.0
+    },
+    {
+      "factory": "F50",
+      "date": "2026-09-11",
+      "kg": 103728.0
+    },
+    {
+      "factory": "F50",
+      "date": "2026-09-14",
+      "kg": 103052.0
+    },
+    {
+      "factory": "F50",
+      "date": "2026-09-15",
+      "kg": 104031.0
+    },
+    {
+      "factory": "F50",
+      "date": "2026-09-16",
+      "kg": 92941.0
+    },
+    {
+      "factory": "F50",
+      "date": "2026-09-17",
+      "kg": 115087.0
+    }
+  ],
+  "factory_mapping": {
+    "남양주1": "F10A",
+    "남양주2": "F10B",
+    "김해": "F20",
+    "광주": "F30",
+    "논산": "F40",
+    "경산": "F50"
+  },
+  "comparison": [
+    {
+      "sheet": "남양주1",
+      "date": "2026-09-01",
+      "row": 976,
+      "actual": 0,
+      "production_daily": 236224.0,
+      "difference": 236224.0
+    },
+    {
+      "sheet": "남양주1",
+      "date": "2026-09-02",
+      "row": 977,
+      "actual": 0,
+      "production_daily": 230166.0,
+      "difference": 230166.0
+    },
+    {
+      "sheet": "남양주1",
+      "date": "2026-09-03",
+      "row": 978,
+      "actual": 0,
+      "production_daily": 223823.0,
+      "difference": 223823.0
+    },
+    {
+      "sheet": "남양주1",
+      "date": "2026-09-04",
+      "row": 979,
+      "actual": 0,
+      "production_daily": 271915.0,
+      "difference": 271915.0
+    },
+    {
+      "sheet": "남양주1",
+      "date": "2026-09-05",
+      "row": 980,
+      "actual": 0,
+      "production_daily": 37774.0,
+      "difference": 37774.0
+    },
+    {
+      "sheet": "남양주1",
+      "date": "2026-09-06",
+      "row": 981,
+      "actual": 0,
+      "production_daily": 0,
+      "difference": 0
+    },
+    {
+      "sheet": "남양주1",
+      "date": "2026-09-07",
+      "row": 982,
+      "actual": 0,
+      "production_daily": 211485.0,
+      "difference": 211485.0
+    },
+    {
+      "sheet": "남양주1",
+      "date": "2026-09-08",
+      "row": 983,
+      "actual": 0,
+      "production_daily": 237978.0,
+      "difference": 237978.0
+    },
+    {
+      "sheet": "남양주1",
+      "date": "2026-09-09",
+      "row": 984,
+      "actual": 0,
+      "production_daily": 194012.0,
+      "difference": 194012.0
+    },
+    {
+      "sheet": "남양주1",
+      "date": "2026-09-10",
+      "row": 985,
+      "actual": 0,
+      "production_daily": 233783.0,
+      "difference": 233783.0
+    },
+    {
+      "sheet": "남양주1",
+      "date": "2026-09-11",
+      "row": 986,
+      "actual": 0,
+      "production_daily": 301239.0,
+      "difference": 301239.0
+    },
+    {
+      "sheet": "남양주1",
+      "date": "2026-09-12",
+      "row": 987,
+      "actual": 0,
+      "production_daily": 78380.0,
+      "difference": 78380.0
+    },
+    {
+      "sheet": "남양주1",
+      "date": "2026-09-13",
+      "row": 988,
+      "actual": 0,
+      "production_daily": 13204.0,
+      "difference": 13204.0
+    },
+    {
+      "sheet": "남양주1",
+      "date": "2026-09-14",
+      "row": 989,
+      "actual": 0,
+      "production_daily": 197932.0,
+      "difference": 197932.0
+    },
+    {
+      "sheet": "남양주1",
+      "date": "2026-09-15",
+      "row": 990,
+      "actual": 0,
+      "production_daily": 278467.0,
+      "difference": 278467.0
+    },
+    {
+      "sheet": "남양주1",
+      "date": "2026-09-16",
+      "row": 991,
+      "actual": 0,
+      "production_daily": 218795.0,
+      "difference": 218795.0
+    },
+    {
+      "sheet": "남양주1",
+      "date": "2026-09-17",
+      "row": 992,
+      "actual": 226859,
+      "production_daily": 226859.0,
+      "difference": 0.0
+    },
+    {
+      "sheet": "남양주2",
+      "date": "2026-09-01",
+      "row": 976,
+      "actual": 0,
+      "production_daily": 226334.0,
+      "difference": 226334.0
+    },
+    {
+      "sheet": "남양주2",
+      "date": "2026-09-02",
+      "row": 977,
+      "actual": 0,
+      "production_daily": 242738.0,
+      "difference": 242738.0
+    },
+    {
+      "sheet": "남양주2",
+      "date": "2026-09-03",
+      "row": 978,
+      "actual": 0,
+      "production_daily": 231502.0,
+      "difference": 231502.0
+    },
+    {
+      "sheet": "남양주2",
+      "date": "2026-09-04",
+      "row": 979,
+      "actual": 0,
+      "production_daily": 206735.0,
+      "difference": 206735.0
+    },
+    {
+      "sheet": "남양주2",
+      "date": "2026-09-05",
+      "row": 980,
+      "actual": 0,
+      "production_daily": 30356.0,
+      "difference": 30356.0
+    },
+    {
+      "sheet": "남양주2",
+      "date": "2026-09-06",
+      "row": 981,
+      "actual": 0,
+      "production_daily": 0,
+      "difference": 0
+    },
+    {
+      "sheet": "남양주2",
+      "date": "2026-09-07",
+      "row": 982,
+      "actual": 0,
+      "production_daily": 116900.0,
+      "difference": 116900.0
+    },
+    {
+      "sheet": "남양주2",
+      "date": "2026-09-08",
+      "row": 983,
+      "actual": 0,
+      "production_daily": 116498.0,
+      "difference": 116498.0
+    },
+    {
+      "sheet": "남양주2",
+      "date": "2026-09-09",
+      "row": 984,
+      "actual": 0,
+      "production_daily": 142791.0,
+      "difference": 142791.0
+    },
+    {
+      "sheet": "남양주2",
+      "date": "2026-09-10",
+      "row": 985,
+      "actual": 0,
+      "production_daily": 162302.0,
+      "difference": 162302.0
+    },
+    {
+      "sheet": "남양주2",
+      "date": "2026-09-11",
+      "row": 986,
+      "actual": 0,
+      "production_daily": 144175.0,
+      "difference": 144175.0
+    },
+    {
+      "sheet": "남양주2",
+      "date": "2026-09-12",
+      "row": 987,
+      "actual": 0,
+      "production_daily": 17846.0,
+      "difference": 17846.0
+    },
+    {
+      "sheet": "남양주2",
+      "date": "2026-09-13",
+      "row": 988,
+      "actual": 0,
+      "production_daily": 0.0,
+      "difference": 0.0
+    },
+    {
+      "sheet": "남양주2",
+      "date": "2026-09-14",
+      "row": 989,
+      "actual": 0,
+      "production_daily": 119158.0,
+      "difference": 119158.0
+    },
+    {
+      "sheet": "남양주2",
+      "date": "2026-09-15",
+      "row": 990,
+      "actual": 0,
+      "production_daily": 137441.0,
+      "difference": 137441.0
+    },
+    {
+      "sheet": "남양주2",
+      "date": "2026-09-16",
+      "row": 991,
+      "actual": 0,
+      "production_daily": 149004.0,
+      "difference": 149004.0
+    },
+    {
+      "sheet": "남양주2",
+      "date": "2026-09-17",
+      "row": 992,
+      "actual": 157581,
+      "production_daily": 157581.0,
+      "difference": 0.0
+    },
+    {
+      "sheet": "김해",
+      "date": "2026-09-01",
+      "row": 976,
+      "actual": 0,
+      "production_daily": 406420.0,
+      "difference": 406420.0
+    },
+    {
+      "sheet": "김해",
+      "date": "2026-09-02",
+      "row": 977,
+      "actual": 0,
+      "production_daily": 383434.0,
+      "difference": 383434.0
+    },
+    {
+      "sheet": "김해",
+      "date": "2026-09-03",
+      "row": 978,
+      "actual": 0,
+      "production_daily": 421490.0,
+      "difference": 421490.0
+    },
+    {
+      "sheet": "김해",
+      "date": "2026-09-04",
+      "row": 979,
+      "actual": 0,
+      "production_daily": 356279.0,
+      "difference": 356279.0
+    },
+    {
+      "sheet": "김해",
+      "date": "2026-09-05",
+      "row": 980,
+      "actual": 0,
+      "production_daily": 14764.0,
+      "difference": 14764.0
+    },
+    {
+      "sheet": "김해",
+      "date": "2026-09-06",
+      "row": 981,
+      "actual": 0,
+      "production_daily": 0,
+      "difference": 0
+    },
+    {
+      "sheet": "김해",
+      "date": "2026-09-07",
+      "row": 982,
+      "actual": 0,
+      "production_daily": 200999.0,
+      "difference": 200999.0
+    },
+    {
+      "sheet": "김해",
+      "date": "2026-09-08",
+      "row": 983,
+      "actual": 0,
+      "production_daily": 396630.0,
+      "difference": 396630.0
+    },
+    {
+      "sheet": "김해",
+      "date": "2026-09-09",
+      "row": 984,
+      "actual": 0,
+      "production_daily": 372714.0,
+      "difference": 372714.0
+    },
+    {
+      "sheet": "김해",
+      "date": "2026-09-10",
+      "row": 985,
+      "actual": 0,
+      "production_daily": 403006.0,
+      "difference": 403006.0
+    },
+    {
+      "sheet": "김해",
+      "date": "2026-09-11",
+      "row": 986,
+      "actual": 0,
+      "production_daily": 371744.0,
+      "difference": 371744.0
+    },
+    {
+      "sheet": "김해",
+      "date": "2026-09-12",
+      "row": 987,
+      "actual": 0,
+      "production_daily": 10207.0,
+      "difference": 10207.0
+    },
+    {
+      "sheet": "김해",
+      "date": "2026-09-13",
+      "row": 988,
+      "actual": 0,
+      "production_daily": 0,
+      "difference": 0
+    },
+    {
+      "sheet": "김해",
+      "date": "2026-09-14",
+      "row": 989,
+      "actual": 0,
+      "production_daily": 190388.0,
+      "difference": 190388.0
+    },
+    {
+      "sheet": "김해",
+      "date": "2026-09-15",
+      "row": 990,
+      "actual": 0,
+      "production_daily": 404375.0,
+      "difference": 404375.0
+    },
+    {
+      "sheet": "김해",
+      "date": "2026-09-16",
+      "row": 991,
+      "actual": 0,
+      "production_daily": 412167.0,
+      "difference": 412167.0
+    },
+    {
+      "sheet": "김해",
+      "date": "2026-09-17",
+      "row": 992,
+      "actual": 418157,
+      "production_daily": 418157.0,
+      "difference": 0.0
+    },
+    {
+      "sheet": "광주",
+      "date": "2026-09-01",
+      "row": 976,
+      "actual": 21240,
+      "production_daily": 60668.0,
+      "difference": 39428.0
+    },
+    {
+      "sheet": "광주",
+      "date": "2026-09-02",
+      "row": 977,
+      "actual": 45862.068,
+      "production_daily": 70088.068,
+      "difference": 24226.0
+    },
+    {
+      "sheet": "광주",
+      "date": "2026-09-03",
+      "row": 978,
+      "actual": 2820,
+      "production_daily": 48979.0,
+      "difference": 46159.0
+    },
+    {
+      "sheet": "광주",
+      "date": "2026-09-04",
+      "row": 979,
+      "actual": 0,
+      "production_daily": 32898.0,
+      "difference": 32898.0
+    },
+    {
+      "sheet": "광주",
+      "date": "2026-09-05",
+      "row": 980,
+      "actual": 0,
+      "production_daily": 0.0,
+      "difference": 0.0
+    },
+    {
+      "sheet": "광주",
+      "date": "2026-09-06",
+      "row": 981,
+      "actual": 30640,
+      "production_daily": 30640.0,
+      "difference": 0.0
+    },
+    {
+      "sheet": "광주",
+      "date": "2026-09-07",
+      "row": 982,
+      "actual": 7660,
+      "production_daily": 58455.0,
+      "difference": 50795.0
+    },
+    {
+      "sheet": "광주",
+      "date": "2026-09-08",
+      "row": 983,
+      "actual": 110543.6768,
+      "production_daily": 152185.67680000002,
+      "difference": 41642.000000000015
+    },
+    {
+      "sheet": "광주",
+      "date": "2026-09-09",
+      "row": 984,
+      "actual": 46954.022,
+      "production_daily": 73399.022,
+      "difference": 26445.0
+    },
+    {
+      "sheet": "광주",
+      "date": "2026-09-10",
+      "row": 985,
+      "actual": 29520,
+      "production_daily": 74503.0,
+      "difference": 44983.0
+    },
+    {
+      "sheet": "광주",
+      "date": "2026-09-11",
+      "row": 986,
+      "actual": 30720,
+      "production_daily": 58257.0,
+      "difference": 27537.0
+    },
+    {
+      "sheet": "광주",
+      "date": "2026-09-12",
+      "row": 987,
+      "actual": 0,
+      "production_daily": 0.0,
+      "difference": 0.0
+    },
+    {
+      "sheet": "광주",
+      "date": "2026-09-13",
+      "row": 988,
+      "actual": 0,
+      "production_daily": 0.0,
+      "difference": 0.0
+    },
+    {
+      "sheet": "광주",
+      "date": "2026-09-14",
+      "row": 989,
+      "actual": 7680,
+      "production_daily": 37197.0,
+      "difference": 29517.0
+    },
+    {
+      "sheet": "광주",
+      "date": "2026-09-15",
+      "row": 990,
+      "actual": 63988.5044,
+      "production_daily": 105535.5044,
+      "difference": 41547.00000000001
+    },
+    {
+      "sheet": "광주",
+      "date": "2026-09-16",
+      "row": 991,
+      "actual": 15060,
+      "production_daily": 56414.0,
+      "difference": 41354.0
+    },
+    {
+      "sheet": "광주",
+      "date": "2026-09-17",
+      "row": 992,
+      "actual": 46120,
+      "production_daily": 46120.0,
+      "difference": 0.0
+    },
+    {
+      "sheet": "논산",
+      "date": "2026-09-01",
+      "row": 976,
+      "actual": 0,
+      "production_daily": 190201.0,
+      "difference": 190201.0
+    },
+    {
+      "sheet": "논산",
+      "date": "2026-09-02",
+      "row": 977,
+      "actual": 0,
+      "production_daily": 160142.0,
+      "difference": 160142.0
+    },
+    {
+      "sheet": "논산",
+      "date": "2026-09-03",
+      "row": 978,
+      "actual": 0,
+      "production_daily": 196084.0,
+      "difference": 196084.0
+    },
+    {
+      "sheet": "논산",
+      "date": "2026-09-04",
+      "row": 979,
+      "actual": 0,
+      "production_daily": 178901.0,
+      "difference": 178901.0
+    },
+    {
+      "sheet": "논산",
+      "date": "2026-09-05",
+      "row": 980,
+      "actual": 0,
+      "production_daily": 23020.0,
+      "difference": 23020.0
+    },
+    {
+      "sheet": "논산",
+      "date": "2026-09-06",
+      "row": 981,
+      "actual": 0,
+      "production_daily": 0,
+      "difference": 0
+    },
+    {
+      "sheet": "논산",
+      "date": "2026-09-07",
+      "row": 982,
+      "actual": 0,
+      "production_daily": 194666.0,
+      "difference": 194666.0
+    },
+    {
+      "sheet": "논산",
+      "date": "2026-09-08",
+      "row": 983,
+      "actual": 0,
+      "production_daily": 184797.0,
+      "difference": 184797.0
+    },
+    {
+      "sheet": "논산",
+      "date": "2026-09-09",
+      "row": 984,
+      "actual": 0,
+      "production_daily": 215149.0,
+      "difference": 215149.0
+    },
+    {
+      "sheet": "논산",
+      "date": "2026-09-10",
+      "row": 985,
+      "actual": 0,
+      "production_daily": 216340.0,
+      "difference": 216340.0
+    },
+    {
+      "sheet": "논산",
+      "date": "2026-09-11",
+      "row": 986,
+      "actual": 0,
+      "production_daily": 183205.0,
+      "difference": 183205.0
+    },
+    {
+      "sheet": "논산",
+      "date": "2026-09-12",
+      "row": 987,
+      "actual": 0,
+      "production_daily": 13501.0,
+      "difference": 13501.0
+    },
+    {
+      "sheet": "논산",
+      "date": "2026-09-13",
+      "row": 988,
+      "actual": 0,
+      "production_daily": 0,
+      "difference": 0
+    },
+    {
+      "sheet": "논산",
+      "date": "2026-09-14",
+      "row": 989,
+      "actual": 0,
+      "production_daily": 144614.0,
+      "difference": 144614.0
+    },
+    {
+      "sheet": "논산",
+      "date": "2026-09-15",
+      "row": 990,
+      "actual": 0,
+      "production_daily": 174461.0,
+      "difference": 174461.0
+    },
+    {
+      "sheet": "논산",
+      "date": "2026-09-16",
+      "row": 991,
+      "actual": 0,
+      "production_daily": 171327.0,
+      "difference": 171327.0
+    },
+    {
+      "sheet": "논산",
+      "date": "2026-09-17",
+      "row": 992,
+      "actual": 170131,
+      "production_daily": 170131.0,
+      "difference": 0.0
+    },
+    {
+      "sheet": "경산",
+      "date": "2026-09-01",
+      "row": 155,
+      "actual": 0,
+      "production_daily": 150238.0,
+      "difference": 150238.0
+    },
+    {
+      "sheet": "경산",
+      "date": "2026-09-02",
+      "row": 156,
+      "actual": 0,
+      "production_daily": 149105.0,
+      "difference": 149105.0
+    },
+    {
+      "sheet": "경산",
+      "date": "2026-09-03",
+      "row": 157,
+      "actual": 0,
+      "production_daily": 144518.0,
+      "difference": 144518.0
+    },
+    {
+      "sheet": "경산",
+      "date": "2026-09-04",
+      "row": 158,
+      "actual": 0,
+      "production_daily": 98174.0,
+      "difference": 98174.0
+    },
+    {
+      "sheet": "경산",
+      "date": "2026-09-05",
+      "row": 159,
+      "actual": 0,
+      "production_daily": 0,
+      "difference": 0
+    },
+    {
+      "sheet": "경산",
+      "date": "2026-09-06",
+      "row": 160,
+      "actual": 0,
+      "production_daily": 0,
+      "difference": 0
+    },
+    {
+      "sheet": "경산",
+      "date": "2026-09-07",
+      "row": 161,
+      "actual": 0,
+      "production_daily": 113865.0,
+      "difference": 113865.0
+    },
+    {
+      "sheet": "경산",
+      "date": "2026-09-08",
+      "row": 162,
+      "actual": 0,
+      "production_daily": 84939.0,
+      "difference": 84939.0
+    },
+    {
+      "sheet": "경산",
+      "date": "2026-09-09",
+      "row": 163,
+      "actual": 0,
+      "production_daily": 110509.0,
+      "difference": 110509.0
+    },
+    {
+      "sheet": "경산",
+      "date": "2026-09-10",
+      "row": 164,
+      "actual": 0,
+      "production_daily": 122513.0,
+      "difference": 122513.0
+    },
+    {
+      "sheet": "경산",
+      "date": "2026-09-11",
+      "row": 165,
+      "actual": 0,
+      "production_daily": 103728.0,
+      "difference": 103728.0
+    },
+    {
+      "sheet": "경산",
+      "date": "2026-09-12",
+      "row": 166,
+      "actual": 0,
+      "production_daily": 0,
+      "difference": 0
+    },
+    {
+      "sheet": "경산",
+      "date": "2026-09-13",
+      "row": 167,
+      "actual": 0,
+      "production_daily": 0,
+      "difference": 0
+    },
+    {
+      "sheet": "경산",
+      "date": "2026-09-14",
+      "row": 168,
+      "actual": 0,
+      "production_daily": 103052.0,
+      "difference": 103052.0
+    },
+    {
+      "sheet": "경산",
+      "date": "2026-09-15",
+      "row": 169,
+      "actual": 0,
+      "production_daily": 104031.0,
+      "difference": 104031.0
+    },
+    {
+      "sheet": "경산",
+      "date": "2026-09-16",
+      "row": 170,
+      "actual": 0,
+      "production_daily": 92941.0,
+      "difference": 92941.0
+    },
+    {
+      "sheet": "경산",
+      "date": "2026-09-17",
+      "row": 171,
+      "actual": 115087,
+      "production_daily": 115087.0,
+      "difference": 0.0
+    }
+  ],
+  "wip_by_date": {
+    "26-09-01": 21240.0,
+    "26-09-02": 45862.068,
+    "26-09-03": 2820.0,
+    "26-09-04": 0.0,
+    "26-09-05": 0.0,
+    "26-09-06": 30640.0,
+    "26-09-07": 7660.0,
+    "26-09-08": 110543.6768,
+    "26-09-09": 46954.022,
+    "26-09-10": 29520.0,
+    "26-09-11": 30720.0,
+    "26-09-12": 0.0,
+    "26-09-13": 0.0,
+    "26-09-14": 7680.0,
+    "26-09-15": 63988.5044,
+    "26-09-16": 15060.0,
+    "26-09-17": 0.0
+  }
+}

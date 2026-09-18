@@ -422,33 +422,9 @@ def _load_raw_production_actuals(
         production_rows, include_gwangju_wip=include_gwangju_wip
     )
 
-    # MIS 생산 화면이 무생산일 열을 생략해도, 각 시트의 기간 마커 안 날짜는 0kg로
-    # 간주한다. 최신 종료일 이후 날짜는 만들지 않아 미수집 상태와 무생산을 구분한다.
-    wb = openpyxl.load_workbook(
-        production_raw_path, read_only=True, data_only=True, keep_links=False
-    )
-    try:
-        for sheet_name in wb.sheetnames:
-            meta = production_builder.parse_meta_from_sheet(sheet_name)
-            if meta is None:
-                continue
-            marker = [wb[sheet_name].cell(1, col).value for col in range(1, 4)]
-            if str(marker[0]).strip() != production_builder.PERIOD_MARKER:
-                continue
-            start = marker[1].date() if isinstance(marker[1], datetime) else marker[1]
-            end = marker[2].date() if isinstance(marker[2], datetime) else marker[2]
-            if not isinstance(start, date) or not isinstance(end, date):
-                start = datetime.fromisoformat(str(marker[1])).date()
-                end = datetime.fromisoformat(str(marker[2])).date()
-            factories = ("F10A", "F10B") if meta.factory == "F10" else (meta.factory,)
-            day = min(start, end)
-            last = max(start, end)
-            while day <= last:
-                for factory in factories:
-                    actuals.setdefault((factory, _date_key(day)), 0.0)
-                day += timedelta(days=1)
-    finally:
-        wb.close()
+    # 날짜 검증 마커가 있는 시트의 무생산일만 production_builder에서 보완한다.
+    # 여기서 요청기간 전체나 다른 남양주 공장까지 0으로 확장하면 불완전 수집이
+    # 정상 DB 이력을 덮어쓰므로, 실제 파싱된 공장·일자만 최신값으로 사용한다.
 
     _PRODUCTION_RAW_CACHE_PATH = production_raw_path
     _PRODUCTION_RAW_CACHE_MTIME_NS = mtime_ns

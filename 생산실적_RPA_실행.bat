@@ -6,7 +6,7 @@ setlocal EnableDelayedExpansion
 chcp 65001 >nul
 echo ============================================
 echo  MIS Production Results RPA
-echo  Date range: prompt (blank = month start through yesterday)
+echo  Date range: prompt (blank = month-to-date plus month-boundary recovery)
 echo  Steps     : 1) Raw sampling  2) Build production DW workbook
 echo ============================================
 echo.
@@ -27,7 +27,7 @@ if not "%~1"=="" (
     goto :done
 )
 
-echo 조회 기간을 입력하세요. 둘 다 비우면 이번 달 1일 ~ 어제로 실행됩니다.
+echo 조회 기간을 입력하세요. 둘 다 비우면 당월 누계와 월초 전월 실적을 자동 재수집합니다.
 echo 예: 2026년 전체 복구 시작일 = 2026-01-01
 set "DATE_FROM="
 set "DATE_TO="

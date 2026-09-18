@@ -38,7 +38,7 @@ REM Explicit command-line args bypass the interactive prompt.
 if not "%~1"=="" goto :run_with_args
 
 echo 조회 기간을 입력하세요. 입력한 기간이 생산실적·에너지·재공품에 공통 적용됩니다.
-echo 둘 다 비우면 이번 달 1일 ~ 어제로 실행됩니다.
+echo 둘 다 비우면 당월 누계와 월초 전월 실적을 자동 재수집합니다.
 echo 예: 2026년 전체 복구 시작일 = 2026-01-01
 set "DATE_FROM="
 set "DATE_TO="

@@ -48,6 +48,8 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Iterable
 
+from production_validation import VERIFIED_PERIOD_MARKER, validate_grid_dates
+
 import pandas as pd
 
 from config import sampled_db_path
@@ -934,6 +936,14 @@ def _read_raw_sheet(raw_path: Path, sheet_name: str) -> tuple[date, date, pd.Dat
     if grid.empty:
         logger.warning(f"그리드 데이터 없음 skip: {sheet_name}")
         return None
+    # 실제 화면 날짜를 확인한 수집만 생략된 무생산일을 0으로 확정할 수 있다.
+    # 구버전 마커는 요청기간만 기록했으므로 없는 일자를 만들어 덮어쓰지 않는다.
+    verified = raw.shape[1] > 3 and raw.iloc[0, 3] == VERIFIED_PERIOD_MARKER
+    if verified:
+        days = validate_grid_dates(grid.columns, start, end)
+        for day in range(start.day, end.day + 1):
+            if day not in days:
+                grid[f"{day:02d}일"] = 0.0
     return start, end, grid
 
 

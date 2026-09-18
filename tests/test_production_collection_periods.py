@@ -41,7 +41,7 @@ class ProductionCollectionPeriodTests(unittest.TestCase):
         self.assertEqual(
             periods,
             [
-                (date(2026, 7, 31), date(2026, 7, 31)),
+                (date(2026, 7, 1), date(2026, 7, 31)),
                 (date(2026, 8, 1), date(2026, 8, 2)),
             ],
         )
@@ -57,10 +57,10 @@ class ProductionCollectionPeriodTests(unittest.TestCase):
 
         self.assertEqual(
             periods[0],
-            (date(2026, 7, 30), date(2026, 7, 31)),
+            (date(2026, 7, 1), date(2026, 7, 31)),
         )
 
-    def test_does_not_add_recovery_when_previous_day_is_complete(self) -> None:
+    def test_refreshes_previous_month_for_late_corrections_even_when_complete(self) -> None:
         collected = _days(date(2026, 7, 1), date(2026, 7, 31))
 
         self.assertEqual(
@@ -68,13 +68,15 @@ class ProductionCollectionPeriodTests(unittest.TestCase):
                 date(2026, 8, 2),
                 {"F10_냉동": collected, "F20_냉동": collected},
             ),
-            [(date(2026, 8, 1), date(2026, 8, 2))],
+            [(date(2026, 7, 1), date(2026, 7, 31)),
+             (date(2026, 8, 1), date(2026, 8, 2))],
         )
 
-    def test_empty_history_keeps_existing_current_month_behavior(self) -> None:
+    def test_empty_history_still_covers_month_boundary(self) -> None:
         self.assertEqual(
             plan_collection_periods(date(2026, 8, 2), {}),
-            [(date(2026, 8, 1), date(2026, 8, 2))],
+            [(date(2026, 7, 1), date(2026, 7, 31)),
+             (date(2026, 8, 1), date(2026, 8, 2))],
         )
 
     def test_explicit_range_is_split_into_month_safe_periods(self) -> None:
@@ -140,6 +142,9 @@ class _GridGuardRPA(MISProductionRPA):
         self.dry_run = True
         self.main_window = _DummyWindow()
         self.duplicate_grids: list[tuple[str, str, str, str]] = []
+
+    def _read_date_field(self, field: str) -> date:
+        return date.fromisoformat(self.start_date if field == "start_date_field" else self.end_date)
 
     def select_factory(self, factory: str) -> None:
         self.current_factory = factory

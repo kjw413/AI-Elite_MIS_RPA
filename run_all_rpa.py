@@ -105,6 +105,7 @@ def main() -> int:
 
     if args.date and (args.date_from or args.date_to):
         raise SystemExit("--date 는 --from/--to 와 함께 사용할 수 없습니다.")
+    automatic_dates = not (args.date or args.date_from or args.date_to)
     common_from = common_to = None
     if not args.date:
         range_start, range_end = resolve_date_range(args.date_from, args.date_to)
@@ -139,11 +140,18 @@ def main() -> int:
         ref_date=args.date,
         dry_run=args.dry_run,
         build_dw=False,
-        date_from=common_from,
-        date_to=common_to,
+        date_from=None if automatic_dates else common_from,
+        date_to=None if automatic_dates else common_to,
         factory_codes=factory_codes,
     )
     rc_prod_collect = _run_rpa_safe("생산실적 수집", prod.collect)
+
+    # 생산실적이 전월까지 확장한 기간을 에너지·재공품 수집/가공에도 적용한다.
+    periods = getattr(prod, "collection_periods", [])
+    if automatic_dates and periods:
+        common_from = periods[0][0].isoformat()
+        common_to = periods[-1][1].isoformat()
+        log.info("자동 공통 재수집 기간 확정: %s ~ %s", common_from, common_to)
 
     shared_app = getattr(prod, "app", None)
     shared_window = getattr(prod, "main_window", None)
