@@ -799,7 +799,7 @@ class MISProductionRPA:
                     current_factory = target["factory"]
 
                 self.select_category(target["category"])
-                self._verify_date_range()
+                # 조회기간은 set_date_range()에서 입력 직후 검증한다.
                 self.click_query()
                 (
                     clipboard_text,
