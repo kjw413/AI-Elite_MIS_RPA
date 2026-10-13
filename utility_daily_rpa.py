@@ -70,6 +70,7 @@ import energy_builder  # noqa: E402
 from _common import (  # noqa: E402
     fast_click,
     find_mis_window,
+    open_mis_screen,
     get_clipboard_sequence,
     month_bounds,
     month_range,
@@ -644,6 +645,7 @@ class MISUtilityRPA:
             raise SystemExit(1)
 
         wait = config.get("wait", {})
+        self.screen_menus = config.get("screen_menus", {})
         WAIT_SHORT = wait.get("short", WAIT_SHORT)
         WAIT_MEDIUM = wait.get("medium", WAIT_MEDIUM)
         WAIT_DROPDOWN = wait.get("dropdown", WAIT_DROPDOWN)
@@ -676,7 +678,7 @@ class MISUtilityRPA:
 
     def _validate_coords(self) -> None:
         """실행 전 필요한 좌표가 모두 채워져 있는지 확인한다."""
-        for name in ("tree_menu", "factory_dropdown", "month_filter",
+        for name in ("factory_dropdown", "month_filter",
                      "query_button", "copy_button", "factory_list"):
             self._require_coord(SCREEN_UNIT_INPUT, name)
 
@@ -715,13 +717,13 @@ class MISUtilityRPA:
     # 메뉴 진입
     # -----------------------------------------------------------------------
     def navigate_to_screen(self, screen: str):
-        """좌측 트리에서 해당 화면 메뉴를 더블클릭한다."""
-        log.info(f"[{screen}] 화면으로 이동 중...")
-        # 좌표 기반 더블클릭 — UIA child_window(TreeItem) 검색은 트리 전체를
-        # 순회해 수 초~20초+ 까지 들쭉날쭉 걸리므로 좌표 클릭으로 대체.
-        x, y = self._require_coord(screen, "tree_menu")
-        fast_click(self.main_window, x, y, double=True)
-        log.info(f"  트리메뉴 더블클릭 ({x}, {y})")
+        """좌측 메뉴를 화면 이름/AutomationId로 찾아 더블클릭한다."""
+        defaults = {SCREEN_UNIT_INPUT: "원단위 실적입력(일단위)"}
+        selector = getattr(self, "screen_menus", {}).get(screen, defaults.get(screen))
+        if selector is None:
+            raise ValueError(f"화면 {screen!r}의 screen_menus 설정이 없습니다.")
+        log.info("[%s] %s 화면으로 이동 중...", screen, selector)
+        open_mis_screen(self.main_window, selector)
         time.sleep(WAIT_SCREEN_LOAD)
         log.info("화면 이동 완료")
 

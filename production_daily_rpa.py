@@ -72,6 +72,7 @@ if str(_PROJECT_ROOT) not in sys.path:
 from _common import (
     fast_click,
     find_mis_window,
+    open_mis_screen,
     get_clipboard_sequence,
     get_clipboard_text,
     parse_clipboard_rows,
@@ -392,6 +393,7 @@ class MISProductionRPA:
         try:
             with open(coord_path, "r", encoding="utf-8") as f:
                 config = json.load(f)
+                self.screen_menu = config.get("screen_menu", "기간별 제품 생산실적(일/월)")
                 log.info(f"설정 파일 로드: {coord_path}")
                 wait = config.get("wait", {})
                 WAIT_SHORT = wait.get("short", WAIT_SHORT)
@@ -443,12 +445,9 @@ class MISProductionRPA:
     # 메뉴 진입
     # -----------------------------------------------------------------------
     def navigate_to_production_screen(self):
-        log.info("'기간별 제품 생산실적(일/월)' 화면으로 이동 중...")
-        # 좌표 기반 더블클릭 — UIA child_window(TreeItem) 검색은 트리 전체를
-        # 순회해 수 초~20초+ 까지 들쭉날쭉 걸리므로 좌표 클릭으로 대체.
-        x, y = self.coords.get("tree_menu", [171, 211])
-        fast_click(self.main_window, x, y, double=True)
-        log.info(f"  트리메뉴 더블클릭 ({x}, {y})")
+        selector = getattr(self, "screen_menu", "기간별 제품 생산실적(일/월)")
+        log.info("%s 화면으로 이동 중...", selector)
+        open_mis_screen(self.main_window, selector)
         time.sleep(WAIT_SCREEN_LOAD)
         log.info("화면 이동 완료")
 

@@ -1,11 +1,11 @@
 {
-    "description": "MIS 생산실적 RPA 좌표 (창 기준 상대 좌표). category1 ↔ 항목구분 매핑 정정.",
-    "updated_at": "2026-06-30",
+    "description": "MIS 생산실적 RPA 설정. 메뉴는 UIA 이름/AutomationId, 조회 조작은 창 기준 상대 좌표.",
+    "updated_at": "2026-10-13",
     "screen_menu": "기간별 제품 생산실적(일/월)",
     "_notes": {
         "layout": "화면 좌→우 순서: ORG → 시작일/종료일(세로) → category1 → 항목구분",
         "click_mapping": {
-            "01_DBL": "(171, 211) 트리메뉴 더블클릭 진입 — UIA 측정 중심값(2026-05-28)",
+            "01_DBL": "screen_menu의 UIA 이름/AutomationId로 메뉴 더블클릭 진입",
             "02": "(422, 128) 공장 드롭다운 헤더",
             "03": "(423, 187) F10 (첫 항목)",
             "04": "(609, 108) 시작일 필드",
@@ -22,7 +22,6 @@
         "category_order": "냉동 → 냉장 → 상온 (18px 간격)"
     },
     "coords": {
-        "tree_menu": [171, 211],
         "factory_dropdown": [422, 128],
         "start_date_field": [609, 108],
         "end_date_field": [609, 130],

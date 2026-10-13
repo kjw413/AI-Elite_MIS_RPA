@@ -8,7 +8,7 @@ BEMS 웹앱(`AI-Elite-BEMS`)에서 분리된 독립 프로젝트입니다.
 
 ```
 [이 프로젝트: MIS RPA]                         [웹앱: BEMS]
- MIS 화면 좌표 클릭 → 클립보드 수집             서버 기동 시(main.py):
+ MIS 메뉴 이름 선택 → 조회·클립보드 수집         서버 기동 시(main.py):
    ↓                                            auto_sync_once / auto_sync_production_once
  RawDB_*.xlsx (원본 수집)                        ↓  (mtime 변경 시에만)
    ↓  형식 재가공(production_builder / wip_refactoring)
@@ -21,6 +21,31 @@ BEMS 웹앱(`AI-Elite-BEMS`)에서 분리된 독립 프로젝트입니다.
 - 생산실적: RPA가 `RawDB_생산실적.xlsx` 수집 → `production_builder.build_dataset` 재가공 →
   `DB_생산실적.xlsx` → 웹이 startup에 적재.
 - 재공품: RPA가 `RawDB_재공품.xlsx` 수집 → `wip_refactoring` 재가공 → `DB_재공품.xlsx`.
+
+### 최초 화면 선택
+
+메뉴 진입은 고정 좌표 대신 UIA 메뉴 객체의 화면 이름으로 선택합니다.
+
+| 수집 대상 | 화면 이름 | 설정 위치 |
+| --- | --- | --- |
+| 에너지 | 원단위 실적입력(일단위) | `utility_coords.json` → `screen_menus.unit_input` |
+| 완제품 | 기간별 제품 생산실적(일/월) | `production_coords.json` → `screen_menu` |
+| 재공품 | 생산계획 대비 실적현황(완제품/재공품) | `wip_coords.json` → `screen_menu` |
+
+화면 이름은 공백 차이만 무시하고 정확히 비교합니다. 객체명(AutomationId)을
+사용하려면 화면 이름 문자열을 다음과 같은 객체로 바꿉니다.
+`auto_id` 값은 MIS에서 확인한 실제 AutomationId로 지정하세요.
+
+```json
+{"title": "기간별 제품 생산실적(일/월)", "auto_id": "실제 AutomationId", "control_type": "TreeItem"}
+```
+
+`title`을 생략하고 `auto_id`만 사용할 수도 있습니다. 기본 객체 종류는
+`TreeItem`이며, 메뉴 구현에 따라 `control_type`을 변경할 수 있습니다.
+메뉴를 찾지 못하거나 이름이 중복되면 오류로 중단합니다. 접힌 부모 메뉴와
+스크롤은 UIA 패턴으로 처리하며, 메뉴가 UIA에 노출되지 않으면 MIS에서
+메뉴를 펼치고 이름/AutomationId를 확인하세요. 공장·날짜·조회·복사 조작은
+기존 화면별 좌표를 사용하므로 화면 배치가 바뀌었다면 해당 좌표도 확인해야 합니다.
 
 ### 에너지 수집 화면 변경 (2026-07)
 
@@ -83,7 +108,7 @@ AI-Elite-MIS_RPA/
 ├── build_production_dataset.py  # 생산실적 재가공 CLI
 ├── build_energy_dataset.py      # 에너지 수집 원본 → 웹 입력 파일 가공 CLI
 ├── run_all_rpa.py          # 3종 RPA 오케스트레이터
-├── *_coords.json           # MIS 화면 좌표
+├── *_coords.json           # UIA 메뉴 선택자 + MIS 조회 화면 좌표
 ├── *.bat                   # 실행 래퍼
 └── utils/                      # 좌표 측정/클릭 기록 도우미
 

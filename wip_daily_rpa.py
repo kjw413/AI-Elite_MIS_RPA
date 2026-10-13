@@ -63,6 +63,7 @@ if str(_PROJECT_ROOT) not in sys.path:
 from _common import (
     fast_click,
     find_mis_window,
+    open_mis_screen,
     get_clipboard_sequence,
     get_clipboard_text,
     parse_clipboard_rows,
@@ -211,6 +212,7 @@ class MISWIPRPA:
         try:
             with open(coord_path, "r", encoding="utf-8") as f:
                 config = json.load(f)
+                self.screen_menu = config.get("screen_menu", "생산계획 대비 실적현황(완제품/재공품)")
                 log.info(f"설정 파일 로드: {coord_path}")
                 wait = config.get("wait", {})
                 WAIT_SHORT = wait.get("short", WAIT_SHORT)
@@ -264,11 +266,9 @@ class MISWIPRPA:
     # Step 1: 메뉴 진입 (트리메뉴 더블클릭)
     # -----------------------------------------------------------------------
     def navigate_to_wip_screen(self):
-        log.info("'생산계획 대비 실적현황(완제품/재공품)' 화면으로 이동 중...")
-        # 좌표 기반 더블클릭 (트리메뉴 노드)
-        x, y = self.coords.get("tree_menu", [169, 176])
-        fast_click(self.main_window, x, y, double=True)
-        log.info(f"  트리메뉴 더블클릭 ({x}, {y})")
+        selector = getattr(self, "screen_menu", "생산계획 대비 실적현황(완제품/재공품)")
+        log.info("%s 화면으로 이동 중...", selector)
+        open_mis_screen(self.main_window, selector)
         time.sleep(WAIT_SCREEN_LOAD)
 
     # -----------------------------------------------------------------------

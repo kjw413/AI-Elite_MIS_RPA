@@ -1,6 +1,6 @@
 {
-    "description": "MIS 유틸리티(에너지) RPA 설정 — 2개 화면 좌표(창 기준 상대) + 대기 시간",
-    "updated_at": "2026-07-29",
+    "description": "MIS 유틸리티(에너지) RPA 설정 — UIA 메뉴 선택 + 화면 좌표(창 기준 상대) + 대기 시간",
+    "updated_at": "2026-10-13",
     "_notes": {
         "unit_input": "신규 주수집 화면 '원단위 실적입력(일단위)'. 단가·비용·COD 포함, 믹스생산량·원단위 없음. 좌표는 2026-07-29 클릭기록(utils/logs/click_log_20260729_113352.txt)의 rel 값.",
         "unit_input.month_filter": "미측정 — 기록에 기준년월 클릭이 없습니다. utils/클릭좌표기록_실행.bat 으로 '기준년월' 입력칸 좌표를 측정해 [x, y] 로 채워주세요. null 이면 RPA가 시작 시 중단합니다. (참고 추정치 [658, 116] — 구 화면의 드롭다운→기준년월 x간격 +184 를 적용한 값이며 미검증)",
@@ -9,9 +9,11 @@
         "removed_usage_trend": "구 화면 '유틸리티 일자별 사용량 추이' 좌표는 2026-07-30 제거했다. 그 화면은 믹스생산량·원단위 보완 수집용이었으나, BEMS 웹앱이 이미 생산실적(production_daily.actual_qty)을 분모로 원단위를 재계산하므로(production_actual_service.overlay_actual_production) MIS 에서 받아올 필요가 없다. 되살릴 일이 생기면 git 이력에서 coords.usage_trend 를 참고할 것 — 단 2026-07 시점에 그 화면 드롭다운이 한 칸 밀려(y=167 이 '전사') 좌표 재측정이 필요했다.",
         "danger": "'원단위 실적입력'은 조회 전용이 아닌 실적입력 화면입니다. 좌표가 어긋나면 그리드 셀에 입력이 들어갈 수 있으니 좌표 변경 시 반드시 --dry-run 으로 먼저 검증하세요."
     },
+    "screen_menus": {
+        "unit_input": "원단위 실적입력(일단위)"
+    },
     "coords": {
         "unit_input": {
-            "tree_menu": [145, 132],
             "factory_dropdown": [474, 116],
             "month_filter": [673, 110],
             "query_button": [339, 72],

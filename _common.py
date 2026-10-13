@@ -9,7 +9,7 @@ MIS RPA 스크립트들이 공유하는 헬퍼:
   - month_range          : 'YYYY-MM' ~ 'YYYY-MM' → 월 리스트
   - month_bounds         : 'YYYY-MM' ~ 'YYYY-MM' → (시작일, 종료일)
 
-pywinauto 는 fast_click 안에서만 import 한다 — 가공 전용 모듈
+pywinauto 는 GUI 헬퍼 안에서만 import 한다 — 가공 전용 모듈
 (build_energy_dataset 등)이 이 모듈을 써도 GUI 의존성을 끌고 오지 않도록.
 """
 from __future__ import annotations
@@ -250,6 +250,79 @@ def fast_click(main_window, x: int, y: int, double: bool = False) -> None:
 def reset_window_origin_cache() -> None:
     """MIS 윈도우가 이동·재생성된 경우 호출."""
     _WINDOW_ORIGIN_CACHE.clear()
+
+
+def open_mis_screen(main_window, selector: str | dict, timeout: float = 10.0) -> None:
+    """메뉴의 UIA 이름/AutomationId로 찾아 연다. 고정 좌표 폴백은 하지 않는다.
+
+    selector는 화면 이름 또는 {title, auto_id, control_type} 객체다.
+    기본 control_type은 TreeItem이며, 이름은 공백만 정규화해 정확히 비교한다.
+    중복 객체는 임의 선택하지 않고 오류로 처리한다.
+    """
+    from pywinauto.uia_defines import NoPatternInterfaceError
+
+    if isinstance(selector, str):
+        selector = {"title": selector}
+    if not isinstance(selector, dict):
+        raise ValueError("screen_menu는 화면 이름 또는 UIA 선택자 객체여야 합니다.")
+    title = selector.get("title")
+    auto_id = selector.get("auto_id")
+    control_type = selector.get("control_type", "TreeItem")
+    for value in (title, auto_id, control_type):
+        if value is not None and (not isinstance(value, str) or not value.strip()):
+            raise ValueError("UIA title/auto_id/control_type은 비어 있지 않은 문자열이어야 합니다.")
+    if not (title or auto_id) or not control_type:
+        raise ValueError("메뉴를 식별할 title 또는 auto_id와 control_type이 필요합니다.")
+
+    def normalized(value: str) -> str:
+        return "".join(value.split())
+
+    deadline = time.monotonic() + timeout
+    available: list[str] = []
+    while True:
+        # 메뉴 객체만 검색해 화면 제목/탭 이름을 메뉴로 오인하지 않는다.
+        items = main_window.descendants(control_type=control_type)
+        available = [item.element_info.name or "" for item in items]
+        matches = [
+            item for item in items
+            if (not title or normalized(item.element_info.name or "") == normalized(title))
+            and (not auto_id or item.element_info.automation_id == auto_id)
+        ]
+        if len(matches) > 1:
+            raise RuntimeError(
+                f"MIS 메뉴 선택자 {selector!r}에 {len(matches)}개 객체가 일치합니다. "
+                "screen_menu에 auto_id를 지정해 메뉴를 구분하세요."
+            )
+        if matches:
+            item = matches[0]
+            # 접힌 부모 메뉴를 먼저 펼친 뒤 대상 자체를 스크롤한다.
+            parents = []
+            parent = item.parent()
+            while parent is not None and parent.element_info.control_type == "TreeItem":
+                parents.append(parent)
+                parent = parent.parent()
+            for parent in reversed(parents):
+                try:
+                    parent.expand()
+                except NoPatternInterfaceError:
+                    pass
+            try:
+                item.ensure_visible()
+            except (NoPatternInterfaceError, AttributeError):
+                # ScrollItem 미지원 메뉴도 현재 보이고 활성화돼 있으면 클릭 가능.
+                pass
+            if item.is_visible() and item.is_enabled():
+                logger.info("  UIA 메뉴 선택: %s (AutomationId=%s)",
+                            item.element_info.name, item.element_info.automation_id)
+                item.double_click_input()
+                return
+        if time.monotonic() >= deadline:
+            raise RuntimeError(
+                f"MIS 메뉴 {selector!r}를 찾지 못했거나 활성화되지 않았습니다. "
+                f"확인된 메뉴(최대 20개): {available[:20]!r}. "
+                "MIS 메뉴를 펼치고 화면 이름 또는 AutomationId를 확인하세요."
+            )
+        time.sleep(0.2)
 
 
 # ---------------------------------------------------------------------------

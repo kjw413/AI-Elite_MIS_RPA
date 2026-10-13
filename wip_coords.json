@@ -1,11 +1,11 @@
 {
-    "description": "MIS 재공품 RPA 좌표 (창 기준 상대 좌표). '생산계획 대비 실적현황(완제품/재공품)' 화면.",
-    "updated_at": "2026-06-30",
+    "description": "MIS 재공품 RPA 설정. 메뉴는 UIA 이름/AutomationId, 조회 조작은 창 기준 상대 좌표.",
+    "updated_at": "2026-10-13",
     "screen_menu": "생산계획 대비 실적현황(완제품/재공품)",
     "_notes": {
         "layout": "ORG → 기준일자(세로) → Category1 → 표시구분(소계) → 탭(작업시작일/실적일자/Raw)",
         "click_mapping": {
-            "01_DBL": "(191, 195) 트리메뉴 더블클릭 — 생산계획 대비 실적현황(완제품/재공품). UIA 측정 중심값(2026-05-28); 트리 레이아웃 변경 시 재측정 필요",
+            "01_DBL": "screen_menu의 UIA 이름/AutomationId로 메뉴 더블클릭 진입",
             "02": "(440, 108) 공장(ORG) 드롭다운 헤더",
             "03": "(438, 166) F10 (첫 항목, 18px 간격으로 F20/F30/F40)",
             "04": "(627, 130) 기준일자 시작일 필드 (TAB으로 종료일 자동 이동)",
@@ -23,7 +23,6 @@
         "tab_default": "기본 탭은 '작업시작일 기준' — '실적일자 기준'으로 명시 클릭"
     },
     "coords": {
-        "tree_menu": [191, 195],
         "factory_dropdown": [440, 108],
         "start_date_field": [627, 130],
         "category1_dropdown": [854, 104],
