@@ -140,7 +140,8 @@ def ensure_parent_folder(file_path: str):
 
 def backup_output_file(file_path: str):
     if CREATE_BACKUP and os.path.exists(file_path):
-        folder = os.path.dirname(file_path)
+        folder = os.path.join(os.path.dirname(file_path), "backup")
+        os.makedirs(folder, exist_ok=True)
         name, ext = os.path.splitext(os.path.basename(file_path))
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
         backup_path = os.path.join(folder, f"{name}_backup_{ts}{ext}")
